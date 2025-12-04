@@ -1,4 +1,3 @@
-# home.prtgry (Complete Code using v.gd API + Firebase Firestore)
 import requests
 import json
 from urllib.parse import urlparse
@@ -6,15 +5,18 @@ import re
 import firebase_admin
 from firebase_admin import credentials, firestore
 import uuid
-import datetime  # Keep this top-level import
+import datetime
 import os
 import sys
+# Import the corrected QWidget-based SettingsPage
+from settings import SettingsPage
+
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QFrame,
     QHBoxLayout, QSizePolicy, QScrollArea, QLineEdit, QGraphicsDropShadowEffect,
     QApplication, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView
 )
-from PyQt5.QtCore import Qt, pyqtSignal, QThread, QTimer
+from PyQt5.QtCore import Qt, pyqtSignal, QThread, QTimer, QPoint, QRect, QPropertyAnimation, QEasingCurve
 from PyQt5.QtGui import QFont, QColor, QPainter, QPen
 
 # NOTE: Assume HistoryPage is defined elsewhere.
@@ -61,6 +63,249 @@ firebase_db = initialize_firebase()
 
 # =========================================================================================
 
+# ==================== IMPROVED NOTIFICATION BAR CLASS ====================
+class NotificationBar(QFrame):
+    def __init__(self, message_text, is_success, parent=None, position="top"):
+        super().__init__(parent)
+        self.position = position
+        self.setAttribute(Qt.WA_StyledBackground)
+
+        # Set size based on position
+        if position == "top":
+            self.setFixedWidth(450)
+            self.setFixedHeight(60)
+        else:  # bottom
+            self.setFixedWidth(350)
+            self.setFixedHeight(50)
+
+        # Different styles for top vs bottom notifications
+        if position == "top":
+            if is_success:
+                self.setStyleSheet("""
+                    QFrame {
+                        background-color: #E8F8F4;
+                        border: 2px solid #10C988;
+                        border-radius: 12px;
+                        padding: 10px;
+                    }
+                    QLabel {
+                        color: #064E3B;
+                        font-size: 16px;
+                        font-weight: 600;
+                    }
+                """)
+                icon = "✓"
+            else:
+                self.setStyleSheet("""
+                    QFrame {
+                        background-color: #FEE2E2;
+                        border: 2px solid #EF4444;
+                        border-radius: 12px;
+                        padding: 10px;
+                    }
+                    QLabel {
+                        color: #7F1D1D;
+                        font-size: 16px;
+                        font-weight: 600;
+                    }
+                """)
+                icon = "⚠️"
+        else:  # bottom position
+            if is_success:
+                self.setStyleSheet("""
+                    QFrame {
+                        background-color: #D1FAE5;
+                        border: 1px solid #10C988;
+                        border-radius: 8px;
+                        padding: 8px;
+                    }
+                    QLabel {
+                        color: #064E3B;
+                        font-size: 14px;
+                        font-weight: 500;
+                    }
+                """)
+                icon = "✓"
+            else:
+                self.setStyleSheet("""
+                    QFrame {
+                        background-color: #FEE2E2;
+                        border: 1px solid #EF4444;
+                        border-radius: 8px;
+                        padding: 8px;
+                    }
+                    QLabel {
+                        color: #7F1D1D;
+                        font-size: 14px;
+                        font-weight: 500;
+                    }
+                """)
+                icon = "⚠️"
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(15, 0, 15, 0)
+        layout.setSpacing(12)
+
+        icon_label = QLabel(icon)
+        icon_label.setFont(QFont("Arial", 14 if position == "top" else 12, QFont.Bold))
+
+        message_label = QLabel(message_text)
+        message_label.setWordWrap(True)
+        message_label.setAlignment(Qt.AlignCenter)
+
+        layout.addWidget(icon_label, alignment=Qt.AlignCenter)
+        layout.addWidget(message_label, stretch=1)
+
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(20 if position == "top" else 15)
+        shadow.setOffset(0, 4 if position == "top" else 3)
+        shadow.setColor(QColor(0, 0, 0, 100 if position == "top" else 60))
+        self.setGraphicsEffect(shadow)
+
+        # Setup animation
+        self.animation = QPropertyAnimation(self, b"geometry")
+        self.animation.setDuration(300)
+        self.animation.setEasingCurve(QEasingCurve.OutCubic)
+
+        self.hide()
+
+    def show_animated(self, parent_rect):
+        """Show with slide-in animation"""
+        if self.position == "top":
+            start_rect = QRect(
+                parent_rect.center().x() - self.width() // 2,
+                -self.height(),
+                self.width(),
+                self.height()
+            )
+            end_rect = QRect(
+                parent_rect.center().x() - self.width() // 2,
+                80,  # Position below header
+                self.width(),
+                self.height()
+            )
+        else:  # bottom
+            start_rect = QRect(
+                parent_rect.center().x() - self.width() // 2,
+                parent_rect.bottom(),
+                self.width(),
+                self.height()
+            )
+            end_rect = QRect(
+                parent_rect.center().x() - self.width() // 2,
+                parent_rect.bottom() - self.height() - 20,
+                self.width(),
+                self.height()
+            )
+
+        self.setGeometry(start_rect)
+        self.show()
+        self.raise_()
+
+        self.animation.setStartValue(start_rect)
+        self.animation.setEndValue(end_rect)
+        self.animation.start()
+
+    def hide_animated(self):
+        """Hide with slide-out animation"""
+        if self.position == "top":
+            end_rect = QRect(
+                self.x(),
+                -self.height(),
+                self.width(),
+                self.height()
+            )
+        else:  # bottom
+            end_rect = QRect(
+                self.x(),
+                self.parent().height(),
+                self.width(),
+                self.height()
+            )
+
+        self.animation.setStartValue(self.geometry())
+        self.animation.setEndValue(end_rect)
+        self.animation.finished.connect(self.hide_and_destroy)
+        self.animation.start()
+
+    def show_and_hide(self, duration=3000):
+        """Shows the bar and sets a timer to hide and destroy it."""
+        parent = self.parent()
+        if parent:
+            self.show_animated(parent.rect())
+        else:
+            # Fallback if no parent
+            self.show()
+        QTimer.singleShot(duration, self.hide_animated)
+
+    def hide_and_destroy(self):
+        """Hides the bar and marks it for garbage collection."""
+        self.hide()
+        self.deleteLater()
+
+
+class CopyNotification(QFrame):
+    """Special notification that appears above the copy button"""
+
+    def __init__(self, message_text, parent_button):
+        super().__init__(parent_button.parent())
+        self.parent_button = parent_button
+        self.setAttribute(Qt.WA_StyledBackground)
+        self.setFixedWidth(200)
+        self.setFixedHeight(40)
+
+        self.setStyleSheet("""
+            QFrame {
+                background-color: #10C988;
+                border: 1px solid #0DA875;
+                border-radius: 6px;
+                padding: 5px;
+            }
+            QLabel {
+                color: white;
+                font-size: 13px;
+                font-weight: 500;
+            }
+        """)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 0, 10, 0)
+
+        message_label = QLabel(message_text)
+        message_label.setAlignment(Qt.AlignCenter)
+
+        layout.addWidget(message_label)
+
+        self.hide()
+
+    def show_at_button(self):
+        """Position above the copy button"""
+        if not self.parent_button:
+            return
+
+        try:
+            button_pos = self.parent_button.mapToGlobal(self.parent_button.rect().topLeft())
+            parent_pos = self.parent().mapFromGlobal(button_pos)
+
+            x = parent_pos.x() + (self.parent_button.width() - self.width()) // 2
+            y = parent_pos.y() - self.height() - 5
+
+            self.move(x, y)
+            self.show()
+            self.raise_()
+
+            # Auto hide after 2 seconds
+            QTimer.singleShot(2000, self.hide_and_destroy)
+        except Exception as e:
+            print(f"Error showing copy notification: {e}")
+            self.hide_and_destroy()
+
+    def hide_and_destroy(self):
+        self.hide()
+        self.deleteLater()
+
+
+# ======================================================================
 
 class ExpirationDialog(QFrame):
     expiration_selected = pyqtSignal(str)
@@ -306,9 +551,32 @@ class HomeWindow(QMainWindow):
         self.expiration_dialog = None
         self.current_short_url = ""
         self.worker = None
+        self.notification_bar = None  # To track the active notification
+        self.copy_notification = None  # Track copy button notification
+        self.last_created_short_url = ""  # Store the last created URL
+        self.current_copy_button = None  # Store reference to current copy button
 
         self.setStyleSheet("""
-            QMainWindow { background-color: #F8F8F8; } #headerFrame { background-color: white; border-top: 1px solid #D9D9D9; border-bottom: 1px solid #D9D9D9; } #headerTitle { font-family: "Arial"; font-size: 24px; font-weight: bold; color: #10C988; padding-right: 20px; } #logoutButton { background-color: #EF4444; color: white; border-radius: 10px; border: none; font-size: 16px; padding: 5px 15px; } #logoutButton:hover { background-color: #DC2626; } QScrollArea { border: none; background-color: #F8F8F8; } #scrollContent { background-color: #F8F8F8; } .navButton { font-family: "Arial"; font-size: 14px; font-weight: 500; border: none; border-radius: 10px; padding: 10px 15px; margin-right: 8px; cursor: pointer; } .navButton[state="inactive"] { background-color: transparent; color: #6B7280; } .navButton[state="inactive"]:hover { background-color: #E5E7EB; color: #374151; } .navButton[state="active"] { background-color: #E8F8F4; color: #10C988; } .navButton[state="active"]:hover { background-color: #10C988; color: white; } #shortenerCard, #successCard { background-color: white; border-radius: 14px; border: 1px solid #D9D9D9; } #inputLabel { font-family: "Arial"; font-size: 14px; font-weight: 500; color: #374151; } #cardTitle { font-size: 20px; font-weight: bold; color: black; } #cardSubtitle, #successMessage { font-size: 14px; font-weight: normal; color: #6B7280; } #urlInput, #aliasInput, #expirationButton { border: 1px solid #DCDEE5; border-radius: 12px; padding: 10px 15px; background-color: #F3F4F6; color: #374151; font-size: 16px; } #urlInput:focus, #aliasInput:focus, #expirationButton:focus { border: 2px solid #10C988; background-color: #e8eaed; } #expirationButton { text-align: left; background-color: #F3F4F6; cursor: pointer; } #expirationButton:hover { background-color: #E5E7EB; } 
+            QMainWindow { background-color: #F8F8F8; } 
+            #headerFrame { background-color: white; border-top: 1px solid #D9D9D9; border-bottom: 1px solid #D9D9D9; } 
+            #headerTitle { font-family: "Arial"; font-size: 24px; font-weight: bold; color: #10C988; padding-right: 20px; } 
+            #logoutButton { background-color: #EF4444; color: white; border-radius: 10px; border: none; font-size: 16px; padding: 5px 15px; } 
+            #logoutButton:hover { background-color: #DC2626; } 
+            QScrollArea { border: none; background-color: #F8F8F8; } 
+            #scrollContent { background-color: #F8F8F8; } 
+            .navButton { font-family: "Arial"; font-size: 14px; font-weight: 500; border: none; border-radius: 10px; padding: 10px 15px; margin-right: 8px; cursor: pointer; } 
+            .navButton[state="inactive"] { background-color: transparent; color: #6B7280; } 
+            .navButton[state="inactive"]:hover { background-color: #E5E7EB; color: #374151; } 
+            .navButton[state="active"] { background-color: #E8F8F4; color: #10C988; } 
+            .navButton[state="active"]:hover { background-color: #10C988; color: white; } 
+            #shortenerCard, #successCard { background-color: white; border-radius: 14px; border: 1px solid #D9D9D9; } 
+            #inputLabel { font-family: "Arial"; font-size: 14px; font-weight: 500; color: #374151; } 
+            #cardTitle { font-size: 20px; font-weight: bold; color: black; } 
+            #cardSubtitle, #successMessage { font-size: 14px; font-weight: normal; color: #6B7280; } 
+            #urlInput, #aliasInput, #expirationButton { border: 1px solid #DCDEE5; border-radius: 12px; padding: 10px 15px; background-color: #F3F4F6; color: #374151; font-size: 16px; } 
+            #urlInput:focus, #aliasInput:focus, #expirationButton:focus { border: 2px solid #10C988; background-color: #e8eaed; } 
+            #expirationButton { text-align: left; background-color: #F3F4F6; cursor: pointer; } 
+            #expirationButton:hover { background-color: #E5E7EB; } 
 
             /* Create Short Link Button Style */
             #createButton, #copyButton { 
@@ -319,14 +587,14 @@ class HomeWindow(QMainWindow):
                 font-size: 16px; 
                 font-weight: bold; 
                 padding: 10px; 
-                min-height: 25px; /* Ensures a good button height */
+                min-height: 25px; 
                 cursor: pointer;
             } 
             #createButton:hover, #copyButton:hover { 
-                background-color: #10C988; /* No change on hover */
+                background-color: #0DA875; /* Slightly darker */
             } 
             #createButton:pressed, #copyButton:pressed { 
-                background-color: #10C988; /* No change on press */
+                background-color: #0B8F67; /* Even darker */
             } 
             #createButton:disabled, #copyButton:disabled { 
                 background-color: #9CA3AF; 
@@ -334,7 +602,13 @@ class HomeWindow(QMainWindow):
             } 
             /* End Create/Copy Button Style */
 
-            #shortUrlDisplay { background-color: #F8F8F8; border: 1px solid #DCDEE5; border-radius: 12px; padding: 10px 15px; } #shortUrlText { font-size: 16px; font-weight: 500; color: #10C988; } .actionButton { background-color: #E5E7EB; color: #374151; border-radius: 12px; border: 1px solid transparent; font-size: 16px; padding: 10px 20px; min-height: 48px; cursor: pointer; } .actionButton:hover { background-color: #E5E7EB; } .actionButton:pressed { background-color: #E5E7EB; } .actionButton:disabled { background-color: #D1D5DB; color: #9CA3AF; cursor: not-allowed; } #expirationButton::after { content: "▼"; float: right; font-size: 12px; color: #6B7280; }
+            #shortUrlDisplay { background-color: #F8F8F8; border: 1px solid #DCDEE5; border-radius: 12px; padding: 10px 15px; } 
+            #shortUrlText { font-size: 16px; font-weight: 500; color: #10C988; } 
+            .actionButton { background-color: #E5E7EB; color: #374151; border-radius: 12px; border: 1px solid transparent; font-size: 16px; padding: 10px 20px; min-height: 48px; cursor: pointer; } 
+            .actionButton:hover { background-color: #D1D5DB; } 
+            .actionButton:pressed { background-color: #A0A4AD; } 
+            .actionButton:disabled { background-color: #D1D5DB; color: #9CA3AF; cursor: not-allowed; } 
+            #expirationButton::after { content: "▼"; float: right; font-size: 12px; color: #6B7280; }
         """)
 
         central_widget = QWidget()
@@ -406,6 +680,39 @@ class HomeWindow(QMainWindow):
 
         self.switch_tab("dashboard")
 
+    def show_notification(self, message, is_success, position="top", duration=3000):
+        """Creates and displays a notification bar at specified position."""
+        # Cleanup old notification if present
+        if self.notification_bar:
+            try:
+                self.notification_bar.hide_and_destroy()
+            except:
+                pass
+            self.notification_bar = None
+
+        # Create new notification bar
+        self.notification_bar = NotificationBar(message, is_success, parent=self, position=position)
+        self.notification_bar.show_and_hide(duration)
+
+    def show_copy_notification(self, message, button=None):
+        """Shows a small notification above the copy button"""
+        if self.copy_notification:
+            try:
+                self.copy_notification.hide_and_destroy()
+            except:
+                pass
+            self.copy_notification = None
+
+        target_button = button or self.current_copy_button
+        if target_button:
+            try:
+                self.copy_notification = CopyNotification(message, target_button)
+                self.copy_notification.show_at_button()
+            except Exception as e:
+                print(f"Error showing copy notification: {e}")
+                # Fallback to regular notification
+                self.show_notification(message, is_success=True, position="bottom", duration=2000)
+
     def get_current_user_id(self):
         return self.user_id
 
@@ -425,6 +732,7 @@ class HomeWindow(QMainWindow):
         return bool(re.match(pattern, alias))
 
     def create_short_link_display(self, short_url):
+        """Create a display card for the shortened URL"""
         card = QFrame()
         card.setObjectName("successCard")
         card.setMinimumWidth(736)
@@ -446,21 +754,24 @@ class HomeWindow(QMainWindow):
         success_layout.setContentsMargins(0, 0, 0, 0)
         success_layout.setSpacing(10)
 
-        # Icon and message for the card itself
-        check_icon = QLabel("Short Link Created & Saved")  # Text Label placeholder for the icon/title in the card
+        check_icon = QLabel("✓")
         check_icon.setFont(QFont("Arial", 18, QFont.Bold))
         check_icon.setStyleSheet("color: #10C988;")
+
+        title_label = QLabel("Short Link Created & Saved")
+        title_label.setFont(QFont("Arial", 16, QFont.Bold))
+        title_label.setStyleSheet("color: #064E3B;")
+
+        success_layout.addWidget(check_icon)
+        success_layout.addWidget(title_label)
+        success_layout.addStretch(1)
+
+        card_layout.addWidget(success_frame)
 
         message_label = QLabel("Your shortened link is ready!")
         message_label.setObjectName("successMessage")
         message_label.setFont(QFont("Arial", 14))
-
-        success_layout.addWidget(check_icon)
-        # success_layout.addWidget(message_label) # Removed secondary message for a cleaner look
-        success_layout.addStretch(1)
-
-        card_layout.addWidget(success_frame)
-        card_layout.addWidget(message_label)  # Re-add subtitle below the title
+        card_layout.addWidget(message_label)
 
         display_frame = QFrame()
         display_frame.setObjectName("shortUrlDisplay")
@@ -471,33 +782,34 @@ class HomeWindow(QMainWindow):
         short_label = QLabel("Your short link")
         short_label.setObjectName("inputLabel")
 
-        self.short_link_text = QLabel(short_url)
-        self.short_link_text.setObjectName("shortUrlText")
-        self.short_link_text.setCursor(Qt.IBeamCursor)
-        self.short_link_text.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        short_link_text = QLabel(short_url)
+        short_link_text.setObjectName("shortUrlText")
+        short_link_text.setCursor(Qt.IBeamCursor)
+        short_link_text.setTextInteractionFlags(Qt.TextSelectableByMouse)
 
         display_layout.addWidget(short_label)
-        display_layout.addWidget(self.short_link_text)
+        display_layout.addWidget(short_link_text)
 
         card_layout.addWidget(display_frame)
 
-        # --- MODIFIED: Single Copy Button ---
         action_frame = QFrame()
         action_layout = QHBoxLayout(action_frame)
         action_layout.setContentsMargins(0, 0, 0, 0)
         action_layout.setSpacing(10)
 
-        # Use ShadowButton for the primary styling and effects
-        self.copy_btn = ShadowButton("Copy URL", parent_app=self, is_primary=True)
-        self.copy_btn.setObjectName("copyButton")
-        self.copy_btn.setCursor(Qt.PointingHandCursor)
-        self.copy_btn.clicked.connect(lambda: self.copy_to_clipboard(short_url))
+        # Create a regular QPushButton instead of ShadowButton to avoid parent_app issues
+        copy_btn = QPushButton("Copy URL")
+        copy_btn.setObjectName("copyButton")
+        copy_btn.setCursor(Qt.PointingHandCursor)
+        # Store the short_url in the button's property for access in the lambda
+        copy_btn.setProperty("short_url", short_url)
+        copy_btn.clicked.connect(lambda checked, btn=copy_btn: self.copy_to_clipboard(btn.property("short_url"), btn))
+        self.apply_button_shadow(copy_btn, is_primary=True)  # Apply shadow manually
 
-        action_layout.addStretch(1)  # Push button to the right
-        action_layout.addWidget(self.copy_btn)
+        action_layout.addStretch(1)
+        action_layout.addWidget(copy_btn)
 
         card_layout.addWidget(action_frame)
-        # -------------------------------------
 
         return card
 
@@ -591,8 +903,8 @@ class HomeWindow(QMainWindow):
         card_layout.addWidget(side_by_side_frame)
         card_layout.addSpacing(15)
 
-        self.create_btn = ShadowButton("Create Short Link", parent_app=self, is_primary=True)
-        self.create_btn.setObjectName("createButton")
+        # Use ShadowButton here as it's intended to handle shadow logic
+        self.create_btn = ShadowButton("Create Short Link", parent_app=self, is_primary=True, objectName="createButton")
         self.create_btn.clicked.connect(self.handle_create_link)
 
         card_layout.addWidget(self.create_btn)
@@ -646,17 +958,24 @@ class HomeWindow(QMainWindow):
 
         normalized_url = self.validate_url(long_url)
         if not normalized_url:
-            QMessageBox.warning(self, "Validation Error",
-                                "Please enter a valid URL (e.g., https://example.com)")
+            self.show_notification(
+                "Please enter a valid URL (e.g., https://example.com)",
+                is_success=False,
+                position="bottom"
+            )
             return
 
         if alias and not self.is_valid_custom_alias(alias):
-            QMessageBox.warning(self, "Validation Error",
-                                "Alias can only contain letters, numbers, and hyphens (2-30 characters)")
+            self.show_notification(
+                "Alias can only contain letters, numbers, and hyphens (2-30 characters)",
+                is_success=False,
+                position="bottom"
+            )
             return
 
         self.create_btn.setEnabled(False)
         self.create_btn.setText("Creating & Saving...")
+        self.remove_button_shadow(self.create_btn)  # Remove shadow for disabled state
 
         url_data = {
             "original_url": normalized_url,
@@ -673,6 +992,7 @@ class HomeWindow(QMainWindow):
     def on_link_created(self, result):
         short_url = result.get('short_url', '')
         self.current_short_url = short_url
+        self.last_created_short_url = short_url
 
         # 1. Load the dashboard content to show the visual success card with the link
         self.load_dashboard_content(show_result=True, short_url=short_url)
@@ -680,33 +1000,49 @@ class HomeWindow(QMainWindow):
         self.long_url_input.clear()
         self.alias_input.clear()
 
-        # POP-UP NOTIFICATION REMOVED
+        # Show success notification at the top
+        self.show_notification(
+            "Short Link created and saved successfully!",
+            is_success=True,
+            position="top"
+        )
 
         # Reset button state
         self.create_btn.setEnabled(True)
         self.create_btn.setText("Create Short Link")
-        self.create_btn.style().polish(self.create_btn)
+        self.apply_button_shadow(self.create_btn, True)
 
     def on_link_error(self, error_message):
-        QMessageBox.critical(self, "Operation Failed",
-                             f"Failed to create or save link:\n\n{error_message}")
+        self.show_notification(
+            f"Operation Failed: {error_message.splitlines()[0]}",
+            is_success=False,
+            position="top",
+            duration=5000
+        )
 
         self.create_btn.setEnabled(True)
         self.create_btn.setText("Create Short Link")
-        self.create_btn.style().polish(self.create_btn)
+        self.apply_button_shadow(self.create_btn, True)
 
-    def copy_to_clipboard(self, text):
-        clipboard = QApplication.clipboard()
-        clipboard.setText(text)
+    def copy_to_clipboard(self, text, button=None):
+        try:
+            clipboard = QApplication.clipboard()
+            clipboard.setText(text)
 
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Copied")
-        msg.setText("✅ URL copied to clipboard!")
-        msg.setIcon(QMessageBox.Information)
-        msg.setStandardButtons(QMessageBox.Ok)
-        msg.exec_()
+            # Store the button reference for the notification
+            if button:
+                self.current_copy_button = button
 
-    # REMOVED: generate_qr_code method is no longer needed
+            # Show copy notification above the button
+            self.show_copy_notification("Copied to clipboard!", button)
+
+        except Exception as e:
+            # Fallback to bottom notification if copy fails
+            self.show_notification(
+                f"Failed to copy: {str(e)}",
+                is_success=False,
+                position="bottom"
+            )
 
     def _create_nav_button(self, text, name):
         btn = QPushButton(text)
@@ -741,22 +1077,18 @@ class HomeWindow(QMainWindow):
                 widget.deleteLater()
 
         if tab_name == "dashboard":
-            self.load_dashboard_content(show_result=False)
+            self.load_dashboard_content(show_result=bool(self.last_created_short_url))
 
         elif tab_name == "history":
             history_page = HistoryPage(self.get_current_user_id())
             self.content_layout.addWidget(history_page)
 
         elif tab_name == "settings":
-            title = QLabel("Page: Settings")
-            title.setFont(QFont("Arial", 48, QFont.Bold))
-            title.setAlignment(Qt.AlignCenter)
-            self.content_layout.addWidget(title)
+            # SettingsPage is now a QWidget, correctly embedded
+            settings_page = SettingsPage(parent_app=self)
+            self.content_layout.addWidget(settings_page, alignment=Qt.AlignHCenter)
 
-            content_label = QLabel("Adjusting application preferences...")
-            content_label.setFont(QFont("Arial", 24))
-            self.content_layout.addWidget(content_label)
-            self.content_layout.addStretch(1)
+        self.content_layout.addStretch(1)
 
     def load_dashboard_content(self, show_result=False, short_url=None):
         while self.content_layout.count():
@@ -769,18 +1101,27 @@ class HomeWindow(QMainWindow):
         self.content_layout.addWidget(shortener_card, alignment=Qt.AlignHCenter)
 
         if show_result:
-            display_url = short_url if short_url else "https://v.gd/example"
-            result_display = self.create_short_link_display(short_url=display_url)
-            self.content_layout.addWidget(result_display, alignment=Qt.AlignHCenter)
+            display_url = short_url or self.last_created_short_url
+            if display_url:
+                result_display = self.create_short_link_display(short_url=display_url)
+                self.content_layout.addWidget(result_display, alignment=Qt.AlignHCenter)
 
         self.content_layout.addStretch(1)
 
     def logout(self):
+        # Stop worker gracefully
         if self.worker and self.worker.isRunning():
             self.worker.quit()
             self.worker.wait()
 
+        # Handle authentication logic (if self.auth_app_instance exists)
         if self.auth_app_instance:
             self.hide()
+            # Assuming auth_app_instance is the main application container/login window
+            # and knows how to show itself.
             self.auth_app_instance.user_id = None
             self.auth_app_instance.show()
+        else:
+            # Fallback if no auth instance is passed (e.g., running HomeWindow standalone)
+            QMessageBox.information(self, "Logout", "Logout successful! Closing application.")
+            QApplication.quit()
