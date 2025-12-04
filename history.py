@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
     QProgressBar, QDialog, QLineEdit, QFormLayout, QDialogButtonBox
 )
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QFont, QColor
 
 
 class HistoryPage(QWidget):

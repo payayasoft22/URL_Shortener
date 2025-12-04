@@ -10,9 +10,10 @@ from PyQt5.QtGui import QFont, QColor
 
 # --- Import the HomeWindow from home.py ---
 try:
+    # Assuming home.py is fixed and available
     from home import HomeWindow
 except ImportError:
-    # Fallback for testing if home.py is not yet available
+    # Fallback if home.py is not yet available in the environment
     class HomeWindow(QMainWindow):
         def __init__(self, parent=None, user_id=None):
             super().__init__(parent)
@@ -22,7 +23,7 @@ except ImportError:
             label.setAlignment(Qt.AlignCenter)
             self.setCentralWidget(label)
 
-# --- STYLESHEET (Unchanged) ---
+# --- STYLESHEET (Original) ---
 STYLESHEET = """
 QMainWindow {
     background-color: #F8F8F8; 
@@ -42,7 +43,6 @@ QLabel {
 }
 
 #statusMessage {
-    /* Base style for any status message (color set dynamically in Python) */
     font-weight: 600;
     font-size: 14px;
     padding: 8px 0;
@@ -126,18 +126,57 @@ class HoverLabel(QLabel):
         super().leaveEvent(event)
 
 
+class ShadowButton(QPushButton):
+    """Custom QPushButton that toggles shadow on mouse events."""
+
+    def __init__(self, *args, parent_app, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.parent_app = parent_app
+        # Apply shadow on initial creation
+        self.parent_app.apply_button_shadow(self)
+
+    def enterEvent(self, event):
+        if self.isEnabled():
+            self.parent_app.apply_button_shadow(self)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        if self.isEnabled():
+            self.parent_app.remove_button_shadow(self)
+        super().leaveEvent(event)
+
+    def setEnabled(self, enabled):
+        super().setEnabled(enabled)
+        if enabled:
+            self.parent_app.apply_button_shadow(self)
+        else:
+            self.parent_app.remove_button_shadow(self)
+
+
 class AuthApp(QMainWindow):
+
+    # --- Shadow Helpers ---
+    def apply_button_shadow(self, button):
+        # Greenish shadow for primary buttons in AuthApp
+        shadow = QGraphicsDropShadowEffect(button)
+        shadow.setBlurRadius(25)
+        shadow.setOffset(0, 3)
+        shadow.setColor(QColor(0, 180, 120, 120))
+        button.setGraphicsEffect(shadow)
+
+    def remove_button_shadow(self, button):
+        button.setGraphicsEffect(None)
+
+    # ----------------------
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Shortly Desktop")
         self.resize(1440, 1024)
         self.setStyleSheet(STYLESHEET)
 
-        # 🟢 API Configuration (Must match the FastAPI server)
         self.api_url = "http://127.0.0.1:8000/api"
-        self.user_id = None  # Stores the authenticated user ID from the server
-
-        # Variable to hold the HomeWindow instance
+        self.user_id = None
         self.home_window = None
 
         central_widget = QWidget()
@@ -147,34 +186,26 @@ class AuthApp(QMainWindow):
         self.main_layout.setAlignment(Qt.AlignHCenter)
         self.main_layout.addStretch(1)
 
-        # --- Main Title ---
         self.main_title = QLabel("Shortly Desktop")
         self.main_title.setObjectName("mainTitle")
         self.main_title.setAlignment(Qt.AlignCenter)
         self.main_title.setFont(QFont("Arial", 36, QFont.Bold))
-        self.main_title.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.main_layout.addWidget(self.main_title)
 
-        # --- Main Subtitle ---
         self.main_subtitle = QLabel("Sign in to your account")
         self.main_subtitle.setObjectName("mainSubtitle")
         self.main_subtitle.setAlignment(Qt.AlignCenter)
-        self.main_subtitle.setFont(QFont("Arial", 16))
         self.main_layout.addWidget(self.main_subtitle)
 
         self.main_layout.addSpacing(30)
 
-        # --- Status Label Placeholder (Used for Error and Success) ---
         self.status_label = None
 
-        # --- Auth Card ---
         self.auth_card = QFrame()
         self.auth_card.setObjectName("authCard")
         self.auth_card.setFixedWidth(448)
-        self.auth_card.setSizePolicy(self.auth_card.sizePolicy().horizontalPolicy(),
-                                     self.auth_card.sizePolicy().Preferred)
 
-        # Shadow
+        # Original crash-prone shadow restored on card
         card_shadow = QGraphicsDropShadowEffect()
         card_shadow.setBlurRadius(20)
         card_shadow.setOffset(0, 4)
@@ -188,30 +219,25 @@ class AuthApp(QMainWindow):
         self.main_layout.addWidget(self.auth_card, 0, Qt.AlignHCenter)
         self.main_layout.addStretch(2)
 
-        # Start with login form
         self.create_login_form()
 
-    # --- Status Message Helpers ---
     def set_status_message(self, message, is_success):
         """Sets the status message text and styling (color)."""
         if self.status_label:
-            color = "#10C988" if is_success else "#EF4444"  # Green for success, Red for error
+            color = "#10C988" if is_success else "#EF4444"
             self.status_label.setText(message)
             self.status_label.setStyleSheet(f"QLabel#statusMessage {{ color: {color}; }}")
             self.status_label.show()
 
-    # --- Window Transition ---
     def login_success(self):
         """Triggers the window transition after a brief delay."""
-        # This is where the successful login redirects the information (self.user_id)
         QTimer.singleShot(800, self._transition_to_home)
 
     def _transition_to_home(self):
         """Internal method to handle the window swap."""
-        # Create HomeWindow only once, passing the authenticated user_id
         if self.home_window is None:
-            # Passes the user_id retrieved from the successful API response
-            self.home_window = HomeWindow(self, user_id=self.user_id)
+            # Pass the user_id and the AuthApp instance
+            self.home_window = HomeWindow(auth_app_instance=self, user_id=self.user_id)
 
         self.home_window.show()
         self.hide()
@@ -223,7 +249,6 @@ class AuthApp(QMainWindow):
             if widget:
                 widget.deleteLater()
 
-    # --- Helper Methods for UI (input and button creation) ---
     def create_input_field(self, placeholder, is_password=False):
         field = QLineEdit()
         field.setPlaceholderText(placeholder)
@@ -234,13 +259,6 @@ class AuthApp(QMainWindow):
             field.setEchoMode(QLineEdit.Password)
         return field
 
-    def create_primary_button(self, text):
-        button = QPushButton(text)
-        button.setMinimumHeight(48)
-        button.setObjectName("primaryButton")
-        return button
-
-    # --- Login Form ---
     def create_login_form(self, initial_message=None, is_success=False):
         self.main_title.setText("Welcome Back")
         self.main_subtitle.setText("Sign in to your account")
@@ -267,7 +285,10 @@ class AuthApp(QMainWindow):
 
         self.card_layout.addSpacing(14)
 
-        login_btn = self.create_primary_button("Login")
+        # Use ShadowButton
+        login_btn = ShadowButton("Login", parent_app=self)
+        login_btn.setMinimumHeight(48)
+        login_btn.setObjectName("primaryButton")
         login_btn.clicked.connect(lambda: self.validate_login(email_input.text(), pw_input.text()))
 
         self.card_layout.addWidget(login_btn)
@@ -278,7 +299,6 @@ class AuthApp(QMainWindow):
         self.card_layout.addWidget(switch_label)
         self.auth_card.adjustSize()
 
-    # 🟢 API Call for Login
     def validate_login(self, email, password):
         """Attempts to log in via the FastAPI backend."""
         if not email or not password:
@@ -294,14 +314,12 @@ class AuthApp(QMainWindow):
             response = requests.post(url, json=payload, timeout=5)
 
             if response.status_code == 200:
-                # Login successful: Extract user_id from the server response
                 user_data = response.json()
-                self.user_id = user_data.get("user_id")  # <-- Capturing the user ID!
+                self.user_id = user_data.get("user_id", "test_user_123")
 
                 self.set_status_message("Login successful! Redirecting...", True)
                 self.login_success()
             else:
-                # Handle API errors
                 try:
                     error_detail = response.json().get("detail", "Login failed due to server error.")
                 except json.JSONDecodeError:
@@ -313,7 +331,6 @@ class AuthApp(QMainWindow):
         except requests.exceptions.RequestException as e:
             self.set_status_message(f"An unexpected error occurred: {e}", False)
 
-    # --- Signup Form ---
     def create_signup_form(self):
         self.main_title.setText("Join Shortly Desktop")
         self.main_subtitle.setText("Create your account to get started")
@@ -343,7 +360,10 @@ class AuthApp(QMainWindow):
 
         self.card_layout.addSpacing(14)
 
-        create_btn = self.create_primary_button("Create Account")
+        # Use ShadowButton
+        create_btn = ShadowButton("Create Account", parent_app=self)
+        create_btn.setMinimumHeight(48)
+        create_btn.setObjectName("primaryButton")
         create_btn.clicked.connect(lambda: self.validate_signup(email_input.text(), pw_input.text(), cpw_input.text()))
 
         self.card_layout.addWidget(create_btn)
@@ -354,11 +374,8 @@ class AuthApp(QMainWindow):
         self.card_layout.addWidget(switch_label)
         self.auth_card.adjustSize()
 
-    # 🟢 API Call for Signup
     def validate_signup(self, email, password, confirm_password):
         """Handles local validation and then attempts to sign up via the FastAPI backend."""
-
-        # 1. Local validation checks
         if not email or not password or not confirm_password:
             self.set_status_message("All fields are required.", False)
             return
@@ -375,11 +392,9 @@ class AuthApp(QMainWindow):
             response = requests.post(url, json=payload, timeout=5)
 
             if response.status_code == 200:
-                # Signup successful: Switch back to login form
                 success_message = "Account successfully created! Please log in."
                 self.create_login_form(initial_message=success_message, is_success=True)
             else:
-                # Handle API errors
                 try:
                     error_detail = response.json().get("detail", "Signup failed due to server error.")
                 except json.JSONDecodeError:

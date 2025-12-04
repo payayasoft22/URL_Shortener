@@ -1,3 +1,4 @@
+# home.prtgry (Complete Code using v.gd API + Firebase Firestore)
 import requests
 import json
 from urllib.parse import urlparse
@@ -5,50 +6,60 @@ import re
 import firebase_admin
 from firebase_admin import credentials, firestore
 import uuid
-import datetime
+import datetime  # Keep this top-level import
+import os
+import sys
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QFrame,
     QHBoxLayout, QSizePolicy, QScrollArea, QLineEdit, QGraphicsDropShadowEffect,
-    QApplication, QMessageBox
+    QApplication, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView
 )
-from PyQt5.QtCore import Qt, pyqtSignal, QThread
+from PyQt5.QtCore import Qt, pyqtSignal, QThread, QTimer
 from PyQt5.QtGui import QFont, QColor, QPainter, QPen
-from history import HistoryPage
+
+# NOTE: Assume HistoryPage is defined elsewhere.
+try:
+    from history import HistoryPage
+except ImportError:
+    class HistoryPage(QWidget):
+        def __init__(self, *args, **kwargs):
+            super().__init__()
+            self.setLayout(QVBoxLayout())
+            self.layout().addWidget(
+                QLabel("HistoryPage requires separate definition and is disabled.", alignment=Qt.AlignCenter))
+
+# ==================== CONFIGURATION (is.gd / v.gd) ====================
+ISGD_API_ENDPOINT = "https://v.gd/create.php"
 
 
-# ==================== FIREBASE SETUP ====================
-# Initialize Firebase (DO THIS ONCE)
+# ======================================================================
+
+
+# ==================== FIREBASE SETUP (Re-enabled for Saving History) ====================
 def initialize_firebase():
+    """Initializes Firebase if a service account key is available."""
     try:
         if not firebase_admin._apps:
-            # Method 1: Using service account JSON file (RECOMMENDED)
-            cred = credentials.Certificate("url-shortener-c2632-firebase-adminsdk-fbsvc-c9980498ad.json")  # ← DOWNLOAD THIS FROM FIREBASE
-
-            # Method 2: Or use environment variables
-            # import os
-            # cred = credentials.Certificate({
-            #     "type": "service_account",
-            #     "project_id": os.getenv("FIREBASE_PROJECT_ID"),
-            #     "private_key_id": os.getenv("FIREBASE_PRIVATE_KEY_ID"),
-            #     "private_key": os.getenv("FIREBASE_PRIVATE_KEY").replace('\\n', '\n'),
-            #     "client_email": os.getenv("FIREBASE_CLIENT_EMAIL"),
-            #     "client_id": os.getenv("FIREBASE_CLIENT_ID"),
-            #     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            #     "token_uri": "https://oauth2.googleapis.com/token",
-            #     "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            #     "client_x509_cert_url": os.getenv("FIREBASE_CLIENT_X509_CERT_URL")
-            # })
-
-            firebase_admin.initialize_app(cred)
-            print("✅ Firebase initialized successfully")
-            return firestore.client()
+            service_account_path = "serviceAccountKey.json"
+            if os.path.exists(service_account_path):
+                # Ensure you have serviceAccountKey.json file in your project directory
+                cred = credentials.Certificate(service_account_path)
+                firebase_admin.initialize_app(cred)
+                print("✅ Firebase initialized successfully (using serviceAccountKey.json)")
+                return firestore.client()
+            else:
+                print("❌ Firebase skipped: 'serviceAccountKey.json' not found. History saving disabled.")
+                return None
+        return firestore.client()
     except Exception as e:
         print(f"❌ Firebase initialization failed: {e}")
         return None
 
 
-# Try to initialize Firebase
 firebase_db = initialize_firebase()
+
+
+# =========================================================================================
 
 
 class ExpirationDialog(QFrame):
@@ -60,49 +71,22 @@ class ExpirationDialog(QFrame):
         self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
-        # Set style for the dialog
         self.setStyleSheet("""
-            QFrame {
-                background-color: transparent;
-                border-radius: 12px;
-                border: none;
-            }
-            QPushButton {
-                background-color: white;
-                border: none;
-                padding: 12px 16px;
-                text-align: left;
-                font-family: "Arial";
-                font-size: 14px;
-                color: #374151;
-                border-radius: 8px;
-            }
-            QPushButton:hover {
-                background-color: #E8F8F4;
-            }
-            QPushButton[selected="true"] {
-                color: #10C988;
-                font-weight: bold;
-                padding-left: 36px; 
-            }
+            QFrame { background-color: transparent; border-radius: 12px; border: none; }
+            QPushButton { background-color: white; border: none; padding: 12px 16px; text-align: left; font-family: "Arial"; font-size: 14px; color: #374151; border-radius: 8px; }
+            QPushButton:hover { background-color: #E8F8F4; }
+            QPushButton[selected="true"] { color: #10C988; font-weight: bold; padding-left: 36px; }
         """)
 
-        # Create an inner container
         self.inner_frame = QFrame(self)
         self.inner_frame.setStyleSheet("""
-            QFrame {
-                background-color: white;
-                border-radius: 12px;
-                border: 1px solid #D9D9D9;
-            }
+            QFrame { background-color: white; border-radius: 12px; border: 1px solid #D9D9D9; }
         """)
 
-        # Layout for the inner frame
         inner_layout = QVBoxLayout(self.inner_frame)
         inner_layout.setContentsMargins(8, 8, 8, 8)
         inner_layout.setSpacing(4)
 
-        # Options
         self.options = ["7 days", "30 days", "Never"]
         self.buttons = []
         self.selected_button = None
@@ -123,24 +107,20 @@ class ExpirationDialog(QFrame):
 
         inner_layout.addStretch()
 
-        # Apply shadow
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(25)
         shadow.setOffset(0, 5)
         shadow.setColor(QColor(0, 0, 0, 60))
         self.setGraphicsEffect(shadow)
 
-        # Set layout for the main dialog
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(self.inner_frame)
 
-        # Apply initial style
         for btn in self.buttons:
             btn.style().polish(btn)
 
     def resizeEvent(self, event):
-        """Ensure inner frame matches the size of the dialog."""
         self.inner_frame.setGeometry(0, 0, self.width(), self.height())
         super().resizeEvent(event)
 
@@ -148,12 +128,10 @@ class ExpirationDialog(QFrame):
         btn = self.sender()
         option = btn.property("option")
 
-        # Deselect previous
         if self.selected_button:
             self.selected_button.setProperty("selected", False)
             self.selected_button.style().polish(self.selected_button)
 
-        # Select new
         btn.setProperty("selected", True)
         self.selected_button = btn
         btn.style().polish(btn)
@@ -163,7 +141,6 @@ class ExpirationDialog(QFrame):
         self.hide()
 
     def paintEvent(self, event):
-        """Draws the checkmark for the selected item."""
         super().paintEvent(event)
 
         if self.selected_button:
@@ -180,7 +157,10 @@ class ExpirationDialog(QFrame):
 
 
 class CreateLinkWorker(QThread):
-    """Worker thread for creating short links"""
+    """
+    Worker thread that 1) calls the v.gd API to shorten the link,
+    and 2) saves the result to Firebase Firestore for user history.
+    """
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
 
@@ -189,244 +169,146 @@ class CreateLinkWorker(QThread):
         self.url_data = url_data
 
     def run(self):
+        # FIX: Import datetime module with an alias to avoid namespace conflict
+        import datetime as dt
+
+        long_url = self.url_data['original_url']
+        alias = self.url_data.get('alias')
+
+        # --- STEP 1: Call External API (v.gd) ---
+        params = {
+            "url": long_url,
+            "format": "simple"
+        }
+        if alias:
+            params["shorturl"] = alias
+
         try:
-            # Save to Firebase Firestore
-            db = firestore.client()
+            response = requests.get(
+                ISGD_API_ENDPOINT,
+                params=params,
+                timeout=15
+            )
+            response.raise_for_status()
 
-            # Check if alias already exists
-            if self.url_data.get('alias'):
-                existing = db.collection('urls').document(self.url_data['alias']).get()
-                if existing.exists:
-                    self.error.emit("Alias already exists. Please choose a different one.")
-                    return
+            short_url = response.text.strip()
 
-            # Generate short code
-            short_code = self.url_data.get('alias') or str(uuid.uuid4())[:8]
+            if short_url.lower().startswith("error:"):
+                self.error.emit(f"API Error during shortening: {short_url}")
+                return
 
-            # Ensure unique short code
-            while True:
-                existing = db.collection('urls').document(short_code).get()
-                if not existing.exists:
-                    break
-                short_code = str(uuid.uuid4())[:8]
+        except requests.exceptions.RequestException as e:
+            self.error.emit(f"Network failure while calling v.gd: {str(e)}")
+            return
 
-            # Prepare data for Firestore
-            firestore_data = {
-                'original_url': self.url_data['original_url'],
-                'short_code': short_code,
-                'alias': self.url_data.get('alias'),
-                'expiration': self.url_data['expiration'],
-                'user_id': self.url_data['user_id'],
-                'created_at': firestore.SERVER_TIMESTAMP,
-                'clicks': 0,
-                'is_active': True,
-                'expires_at': None
-            }
+        # --- STEP 2: Save Result to Firebase Firestore ---
+        if not firebase_db:
+            # If Firebase fails, still report the short link but warn about history loss
+            self.error.emit(f"Short link created: {short_url}, but Firebase is disconnected. History not saved.")
+            return
 
-            # Set expiration date if not "Never"
-            if self.url_data['expiration'] != "Never":
-                days = 7 if "7" in self.url_data['expiration'] else 30
-                from datetime import datetime, timedelta
-                expires_at = datetime.now() + timedelta(days=days)
-                firestore_data['expires_at'] = expires_at
+        short_code = short_url.split('/')[-1]
 
-            # Save to Firestore
-            db.collection('urls').document(short_code).set(firestore_data)
+        # Calculate expiration date (FIXED LOGIC)
+        expires_at = None
+        if self.url_data['expiration'] != "Never":
+            days = 7 if "7" in self.url_data['expiration'] else 30
+            # FIX: Use dt.datetime and dt.timedelta to avoid namespace error
+            expires_at = dt.datetime.now() + dt.timedelta(days=days)
 
-            # Return success data
+        firestore_data = {
+            'original_url': long_url,
+            'short_url': short_url,
+            'short_code': short_code,
+            'alias_used': alias,
+            'service': 'v.gd',
+            'expiration': self.url_data['expiration'],
+            'user_id': self.url_data['user_id'],
+            'created_at': firestore.SERVER_TIMESTAMP,
+            'clicks': 0,
+            'is_active': True,
+            'expires_at': expires_at
+        }
+
+        try:
+            # Save to history collection using a unique document ID
+            doc_id = str(uuid.uuid4())
+            firebase_db.collection('url_history').document(doc_id).set(firestore_data)
+
+            # 3. Return Success Result
             result = {
-                'short_url': f"https://short.ly/{short_code}",  # Change to your domain
-                'original_url': self.url_data['original_url'],
+                'short_url': short_url,
+                'original_url': long_url,
                 'short_code': short_code,
-                'alias': self.url_data.get('alias'),
+                'alias': alias,
                 'expiration': self.url_data['expiration'],
-                'created_at': datetime.now().isoformat()
+                'created_at': dt.datetime.now().isoformat()  # Use dt here too for consistency
             }
-
             self.finished.emit(result)
 
         except Exception as e:
-            self.error.emit(f"Database error: {str(e)}")
+            self.error.emit(f"Short link created ({short_url}), but failed to save history to Firebase: {str(e)}")
+
+
+class ShadowButton(QPushButton):
+    """Custom QPushButton that calls parent methods to toggle shadow on mouse events."""
+
+    def __init__(self, *args, parent_app, is_primary=True, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.parent_app = parent_app
+        self.is_primary = is_primary
+        self.parent_app.apply_button_shadow(self, self.is_primary)
+
+    def enterEvent(self, event):
+        if self.isEnabled():
+            self.parent_app.apply_button_shadow(self, self.is_primary)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        if self.isEnabled():
+            self.parent_app.remove_button_shadow(self)
+        super().leaveEvent(event)
+
+    def setEnabled(self, enabled):
+        super().setEnabled(enabled)
+        if enabled:
+            self.parent_app.apply_button_shadow(self, self.is_primary)
+        else:
+            self.parent_app.remove_button_shadow(self)
 
 
 class HomeWindow(QMainWindow):
-    def __init__(self, auth_app_instance=None):
+    # --- Shadow Helpers ---
+    def apply_button_shadow(self, button, is_primary):
+        shadow = QGraphicsDropShadowEffect(button)
+        shadow.setBlurRadius(25)
+        shadow.setOffset(0, 3)
+        if is_primary:
+            shadow.setColor(QColor(0, 180, 120, 120))
+        else:
+            shadow.setColor(QColor(0, 0, 0, 60))
+        button.setGraphicsEffect(shadow)
+
+    def remove_button_shadow(self, button):
+        button.setGraphicsEffect(None)
+
+    # ----------------------
+
+    def __init__(self, auth_app_instance=None, user_id="test_user_123"):
         super().__init__()
         self.auth_app_instance = auth_app_instance
+        self.user_id = user_id
         self.setWindowTitle("Shortly Desktop - Home")
         self.resize(1440, 1024)
 
-        # --- Internal State ---
         self.active_tab = "dashboard"
         self.current_expiration = "30 days"
         self.expiration_dialog = None
         self.current_short_url = ""
         self.worker = None
 
-        # Show Firebase status
-        if firebase_db:
-            print("✅ Connected to Firebase Firestore")
-        else:
-            print("⚠️ Not connected to Firebase - URLs won't be saved")
-
-        # --- STYLESHEET ---
         self.setStyleSheet("""
-            QMainWindow {
-                background-color: #F8F8F8;
-            }
-            #headerFrame {
-                background-color: white; 
-                border-top: 1px solid #D9D9D9; 
-                border-bottom: 1px solid #D9D9D9; 
-            }
-            #headerTitle {
-                font-family: "Arial";
-                font-size: 24px;
-                font-weight: bold;
-                color: #10C988;
-                padding-right: 20px;
-            }
-            #logoutButton {
-                background-color: #EF4444; 
-                color: white;
-                border-radius: 10px;
-                border: none;
-                font-size: 16px;
-                padding: 5px 15px;
-            }
-            #logoutButton:hover {
-                background-color: #DC2626; 
-            }
-            QScrollArea {
-                border: none;
-                background-color: #F8F8F8;
-            }
-            #scrollContent {
-                background-color: #F8F8F8;
-            }
-            .navButton {
-                font-family: "Arial";
-                font-size: 14px;
-                font-weight: 500;
-                border: none;
-                border-radius: 10px;
-                padding: 10px 15px;
-                margin-right: 8px;
-                cursor: pointer;
-            }
-            .navButton[state="inactive"] {
-                background-color: transparent;
-                color: #6B7280; 
-            }
-            .navButton[state="inactive"]:hover {
-                background-color: #E5E7EB;
-                color: #374151;
-            }
-            .navButton[state="active"] {
-                background-color: #E8F8F4;
-                color: #10C988;
-            }
-            .navButton[state="active"]:hover {
-                background-color: #10C988;
-                color: white;
-            }
-            #shortenerCard, #successCard {
-                background-color: white;
-                border-radius: 14px;
-                border: 1px solid #D9D9D9;
-            }
-            #inputLabel {
-                font-family: "Arial";
-                font-size: 14px; 
-                font-weight: 500; 
-                color: #374151;
-            }
-            #cardTitle {
-                font-size: 20px; 
-                font-weight: bold;
-                color: black;
-            }
-            #cardSubtitle, #successMessage {
-                font-size: 14px; 
-                font-weight: normal; 
-                color: #6B7280;
-            }
-            #urlInput, #aliasInput, #expirationButton {
-                 border: 1px solid #DCDEE5;
-                 border-radius: 12px;
-                 padding: 10px 15px;
-                 background-color: #F3F4F6;
-                 color: #374151;
-                 font-size: 16px;
-            }
-            #urlInput:focus, #aliasInput:focus, #expirationButton:focus {
-                border: 2px solid #10C988;
-                background-color: #e8eaed;
-            }
-            #expirationButton {
-                text-align: left;
-                background-color: #F3F4F6;
-                cursor: pointer;
-            }
-            #expirationButton:hover {
-                background-color: #E5E7EB;
-            }
-            #expirationButton::after {
-                content: "▼";
-                float: right;
-                font-size: 12px;
-                color: #6B7280;
-            }
-            #createButton {
-                background-color: #10C988;
-                color: white;
-                border-radius: 14px;
-                border: none;
-                font-size: 16px; 
-                font-weight: bold;
-                padding: 10px;
-                min-height: 25px;
-                cursor: pointer;
-            }
-            #createButton:hover {
-                background-color: hsl(160, 84%, 39%, 0.9);
-            }
-            #createButton:pressed {
-                background-color: #00A76A;
-            }
-            #createButton:disabled {
-                background-color: #9CA3AF;
-                cursor: not-allowed;
-            }
-            #shortUrlDisplay {
-                background-color: #F8F8F8;
-                border: 1px solid #DCDEE5;
-                border-radius: 12px;
-                padding: 10px 15px;
-            }
-            #shortUrlText {
-                font-size: 16px;
-                font-weight: 500;
-                color: #10C988;
-            }
-            .actionButton {
-                background-color: #E5E7EB; 
-                color: #374151;
-                border-radius: 12px;
-                border: 1px solid transparent;
-                font-size: 16px; 
-                padding: 10px 20px;
-                min-height: 48px;
-                cursor: pointer;
-            }
-            .actionButton:hover {
-                background-color: #D1D5DB;
-            }
-            .actionButton:disabled {
-                background-color: #D1D5DB;
-                color: #9CA3AF;
-                cursor: not-allowed;
-            }
+            QMainWindow { background-color: #F8F8F8; } #headerFrame { background-color: white; border-top: 1px solid #D9D9D9; border-bottom: 1px solid #D9D9D9; } #headerTitle { font-family: "Arial"; font-size: 24px; font-weight: bold; color: #10C988; padding-right: 20px; } #logoutButton { background-color: #EF4444; color: white; border-radius: 10px; border: none; font-size: 16px; padding: 5px 15px; } #logoutButton:hover { background-color: #DC2626; } QScrollArea { border: none; background-color: #F8F8F8; } #scrollContent { background-color: #F8F8F8; } .navButton { font-family: "Arial"; font-size: 14px; font-weight: 500; border: none; border-radius: 10px; padding: 10px 15px; margin-right: 8px; cursor: pointer; } .navButton[state="inactive"] { background-color: transparent; color: #6B7280; } .navButton[state="inactive"]:hover { background-color: #E5E7EB; color: #374151; } .navButton[state="active"] { background-color: #E8F8F4; color: #10C988; } .navButton[state="active"]:hover { background-color: #10C988; color: white; } #shortenerCard, #successCard { background-color: white; border-radius: 14px; border: 1px solid #D9D9D9; } #inputLabel { font-family: "Arial"; font-size: 14px; font-weight: 500; color: #374151; } #cardTitle { font-size: 20px; font-weight: bold; color: black; } #cardSubtitle, #successMessage { font-size: 14px; font-weight: normal; color: #6B7280; } #urlInput, #aliasInput, #expirationButton { border: 1px solid #DCDEE5; border-radius: 12px; padding: 10px 15px; background-color: #F3F4F6; color: #374151; font-size: 16px; } #urlInput:focus, #aliasInput:focus, #expirationButton:focus { border: 2px solid #10C988; background-color: #e8eaed; } #expirationButton { text-align: left; background-color: #F3F4F6; cursor: pointer; } #expirationButton:hover { background-color: #E5E7EB; } #createButton { background-color: #10C988; color: white; border-radius: 14px; border: none; font-size: 16px; font-weight: bold; padding: 10px; min-height: 25px; cursor: pointer; } #createButton:hover { background-color: #10C988; } #createButton:pressed { background-color: #10C988; } #createButton:disabled { background-color: #9CA3AF; cursor: not-allowed; } #shortUrlDisplay { background-color: #F8F8F8; border: 1px solid #DCDEE5; border-radius: 12px; padding: 10px 15px; } #shortUrlText { font-size: 16px; font-weight: 500; color: #10C988; } .actionButton { background-color: #E5E7EB; color: #374151; border-radius: 12px; border: 1px solid transparent; font-size: 16px; padding: 10px 20px; min-height: 48px; cursor: pointer; } .actionButton:hover { background-color: #E5E7EB; } .actionButton:pressed { background-color: #E5E7EB; } .actionButton:disabled { background-color: #D1D5DB; color: #9CA3AF; cursor: not-allowed; } #expirationButton::after { content: "▼"; float: right; font-size: 12px; color: #6B7280; }
         """)
 
         central_widget = QWidget()
@@ -436,7 +318,6 @@ class HomeWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # --- Header Frame ---
         self.header_frame = QFrame()
         self.header_frame.setObjectName("headerFrame")
         self.header_frame.setFixedHeight(65)
@@ -452,14 +333,12 @@ class HomeWindow(QMainWindow):
         header_layout.setContentsMargins(40, 0, 40, 0)
         header_layout.setSpacing(10)
 
-        # Header Title
         header_title = QLabel("Shortly Desktop")
         header_title.setObjectName("headerTitle")
         header_layout.addWidget(header_title)
 
         header_layout.addStretch(1)
 
-        # Navigation Tabs
         self.nav_frame = QFrame()
         self.nav_layout = QHBoxLayout(self.nav_frame)
         self.nav_layout.setContentsMargins(0, 0, 0, 0)
@@ -476,7 +355,6 @@ class HomeWindow(QMainWindow):
         header_layout.addWidget(self.nav_frame)
         header_layout.addStretch(1)
 
-        # Logout Button
         logout_btn = QPushButton("Logout")
         logout_btn.setObjectName("logoutButton")
         logout_btn.setFixedSize(120, 38)
@@ -485,7 +363,6 @@ class HomeWindow(QMainWindow):
 
         main_layout.addWidget(self.header_frame)
 
-        # --- Content Area ---
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -501,48 +378,27 @@ class HomeWindow(QMainWindow):
 
         main_layout.addWidget(self.scroll_area, 1)
 
-        # Initialize
         self.switch_tab("dashboard")
 
     def get_current_user_id(self):
-        """Get current user ID from authentication"""
-        if self.auth_app_instance and hasattr(self.auth_app_instance, 'current_user'):
-            user = self.auth_app_instance.current_user
-            if isinstance(user, dict):
-                return user.get('uid') or user.get('email') or user.get('id')
-        return "test_user_123"  # For testing
+        return self.user_id
 
     def validate_url(self, url: str) -> str:
-        """Validate and normalize URL"""
-        if not url:
-            return ""
-
-        # Add protocol if missing
-        if not url.startswith(('http://', 'https://')):
-            url = 'https://' + url
-
-        # Basic URL validation
+        if not url: return ""
+        if not url.startswith(('http://', 'https://')): url = 'https://' + url
         try:
             result = urlparse(url)
-            if all([result.scheme, result.netloc]):
-                return url
+            if all([result.scheme, result.netloc]): return url
         except:
             pass
-
         return ""
 
     def is_valid_custom_alias(self, alias: str) -> bool:
-        """Validate custom alias format"""
-        if not alias:
-            return True
-
-        # Allow letters, numbers, and hyphens, 2-30 characters
+        if not alias: return True
         pattern = r'^[a-zA-Z0-9-]{2,30}$'
         return bool(re.match(pattern, alias))
 
-    # --- SUCCESS LINK DISPLAY CARD ---
-    def create_short_link_display(self, short_url="https://short.ly/gerg"):
-        """Creates and returns the short link display field and actions"""
+    def create_short_link_display(self, short_url):
         card = QFrame()
         card.setObjectName("successCard")
         card.setMinimumWidth(736)
@@ -559,7 +415,6 @@ class HomeWindow(QMainWindow):
         card_layout.setContentsMargins(30, 20, 30, 20)
         card_layout.setSpacing(15)
 
-        # Success Message
         success_frame = QFrame()
         success_layout = QHBoxLayout(success_frame)
         success_layout.setContentsMargins(0, 0, 0, 0)
@@ -577,7 +432,6 @@ class HomeWindow(QMainWindow):
 
         card_layout.addWidget(success_frame)
 
-        # Short URL Display Field
         display_frame = QFrame()
         display_frame.setObjectName("shortUrlDisplay")
         display_layout = QVBoxLayout(display_frame)
@@ -597,19 +451,19 @@ class HomeWindow(QMainWindow):
 
         card_layout.addWidget(display_frame)
 
-        # Action Buttons (Copy, QR)
+        # Action Buttons (Copy, QR) - Use ShadowButton, is_primary=False
         action_frame = QFrame()
         action_layout = QHBoxLayout(action_frame)
         action_layout.setContentsMargins(0, 0, 0, 0)
         action_layout.setSpacing(10)
 
-        self.copy_btn = QPushButton("📋 Copy")
+        self.copy_btn = ShadowButton("📋 Copy", parent_app=self, is_primary=False)
         self.copy_btn.setObjectName("copyButton")
         self.copy_btn.setProperty("class", "actionButton")
         self.copy_btn.setCursor(Qt.PointingHandCursor)
         self.copy_btn.clicked.connect(lambda: self.copy_to_clipboard(short_url))
 
-        self.qr_btn = QPushButton("QR")
+        self.qr_btn = ShadowButton("QR", parent_app=self, is_primary=False)
         self.qr_btn.setObjectName("qrButton")
         self.qr_btn.setProperty("class", "actionButton")
         self.qr_btn.setCursor(Qt.PointingHandCursor)
@@ -623,9 +477,7 @@ class HomeWindow(QMainWindow):
 
         return card
 
-    # --- SHORTENER FORM CARD CREATION ---
     def create_url_shortener_card(self):
-        """Creates and returns the styled URL Shortener form card"""
         card = QFrame()
         card.setObjectName("shortenerCard")
         card.setMinimumWidth(736)
@@ -642,7 +494,6 @@ class HomeWindow(QMainWindow):
         card_layout.setContentsMargins(40, 30, 40, 30)
         card_layout.setSpacing(15)
 
-        # Title and Subtitle Area
         title_frame = QFrame()
         title_layout = QHBoxLayout(title_frame)
         title_layout.setContentsMargins(0, 0, 0, 0)
@@ -666,7 +517,6 @@ class HomeWindow(QMainWindow):
         card_layout.addWidget(title_frame)
         card_layout.addSpacing(10)
 
-        # Long URL Input
         url_label = QLabel("Long URL *")
         url_label.setObjectName("inputLabel")
 
@@ -679,13 +529,11 @@ class HomeWindow(QMainWindow):
 
         card_layout.addSpacing(5)
 
-        # Alias and Expiration (Side by Side)
         side_by_side_frame = QFrame()
         side_by_side_layout = QHBoxLayout(side_by_side_frame)
         side_by_side_layout.setContentsMargins(0, 0, 0, 0)
         side_by_side_layout.setSpacing(15)
 
-        # Custom Alias Input
         alias_widget = QWidget()
         alias_vbox = QVBoxLayout(alias_widget)
         alias_vbox.setContentsMargins(0, 0, 0, 0)
@@ -694,11 +542,10 @@ class HomeWindow(QMainWindow):
         alias_label.setObjectName("inputLabel")
         self.alias_input = QLineEdit()
         self.alias_input.setObjectName("aliasInput")
-        self.alias_input.setPlaceholderText("my custom link")
+        self.alias_input.setPlaceholderText("my-custom-link")
         alias_vbox.addWidget(alias_label)
         alias_vbox.addWidget(self.alias_input)
 
-        # Expiration Button
         exp_widget = QWidget()
         exp_vbox = QVBoxLayout(exp_widget)
         exp_vbox.setContentsMargins(0, 0, 0, 0)
@@ -720,8 +567,7 @@ class HomeWindow(QMainWindow):
         card_layout.addWidget(side_by_side_frame)
         card_layout.addSpacing(15)
 
-        # Create Short Link Button
-        self.create_btn = QPushButton("🔗 Create Short Link")
+        self.create_btn = ShadowButton("🔗 Create Short Link", parent_app=self, is_primary=True)
         self.create_btn.setObjectName("createButton")
         self.create_btn.clicked.connect(self.handle_create_link)
 
@@ -730,7 +576,6 @@ class HomeWindow(QMainWindow):
         return card
 
     def toggle_expiration_dialog(self):
-        """Shows or hides the expiration dropdown dialog."""
         if self.expiration_dialog and self.expiration_dialog.isVisible():
             self.expiration_dialog.hide()
             self.expiration_dialog.deleteLater()
@@ -739,7 +584,6 @@ class HomeWindow(QMainWindow):
             self.show_expiration_dialog()
 
     def show_expiration_dialog(self):
-        """Shows the modal expiration selection dialog."""
         if self.expiration_dialog:
             self.expiration_dialog.deleteLater()
             self.expiration_dialog = None
@@ -764,7 +608,6 @@ class HomeWindow(QMainWindow):
         self.expiration_dialog.show()
 
     def on_expiration_selected(self, expiration):
-        """Handles when an expiration is selected from the dialog."""
         self.current_expiration = expiration
         self.exp_button.setText(expiration)
 
@@ -774,40 +617,23 @@ class HomeWindow(QMainWindow):
             self.expiration_dialog = None
 
     def handle_create_link(self):
-        """
-        REAL IMPLEMENTATION: Saves to Firebase Firestore
-        """
-        # Get input values
         long_url = self.long_url_input.text().strip() if hasattr(self, 'long_url_input') else ""
         alias = self.alias_input.text().strip() if hasattr(self, 'alias_input') else ""
 
-        # Validate URL
         normalized_url = self.validate_url(long_url)
         if not normalized_url:
             QMessageBox.warning(self, "Validation Error",
                                 "Please enter a valid URL (e.g., https://example.com)")
             return
 
-        # Validate alias (if provided)
         if alias and not self.is_valid_custom_alias(alias):
             QMessageBox.warning(self, "Validation Error",
                                 "Alias can only contain letters, numbers, and hyphens (2-30 characters)")
             return
 
-        # Check Firebase connection
-        if not firebase_db:
-            QMessageBox.critical(self, "Database Error",
-                                 "Not connected to Firebase. URLs won't be saved.\n\n"
-                                 "Please ensure:\n"
-                                 "1. serviceAccountKey.json exists in project folder\n"
-                                 "2. Firebase is properly initialized")
-            return
-
-        # Disable button and show loading state
         self.create_btn.setEnabled(False)
-        self.create_btn.setText("Creating...")
+        self.create_btn.setText("Creating & Saving...")
 
-        # Prepare data for Firebase
         url_data = {
             "original_url": normalized_url,
             "alias": alias if alias else None,
@@ -815,60 +641,47 @@ class HomeWindow(QMainWindow):
             "user_id": self.get_current_user_id()
         }
 
-        # Create and start worker thread
         self.worker = CreateLinkWorker(url_data)
         self.worker.finished.connect(self.on_link_created)
         self.worker.error.connect(self.on_link_error)
         self.worker.start()
 
     def on_link_created(self, result):
-        """Handle successful link creation"""
         short_url = result.get('short_url', '')
         self.current_short_url = short_url
 
-        # Update UI with result
         self.load_dashboard_content(show_result=True, short_url=short_url)
 
-        # Clear form for next entry
         self.long_url_input.clear()
         self.alias_input.clear()
 
-        # Show success message with database info
-        success_msg = f"""✅ Short URL created and SAVED TO DATABASE!
+        success_msg = f"""✅ Short URL created via v.gd and History SAVED!
 
 📊 Details:
 • Original URL: {result.get('original_url', '')[:60]}...
-• Short URL: {short_url}
+• **Accessible Short URL:** {short_url}
 • Short Code: {result.get('short_code', '')}
-• Expiration: {self.current_expiration}
-• Database: Firebase Firestore
-• Collection: urls
-• Document ID: {result.get('short_code', '')}
 
-✅ Successfully stored in cloud database!
-🔗 You can view it in the History tab.
+🔗 The link is public, and the details are stored in your Firebase History.
 """
-        QMessageBox.information(self, "Success - Database Saved", success_msg)
+        QMessageBox.information(self, "Success - Link Created & Saved", success_msg)
 
-        # Restore button state
         self.create_btn.setEnabled(True)
         self.create_btn.setText("🔗 Create Short Link")
+        self.create_btn.style().polish(self.create_btn)
 
     def on_link_error(self, error_message):
-        """Handle link creation error"""
-        QMessageBox.critical(self, "Database Error",
-                             f"Failed to save to database:\n\n{error_message}")
+        QMessageBox.critical(self, "Operation Failed",
+                             f"Failed to create or save link:\n\n{error_message}")
 
-        # Restore button state
         self.create_btn.setEnabled(True)
         self.create_btn.setText("🔗 Create Short Link")
+        self.create_btn.style().polish(self.create_btn)
 
     def copy_to_clipboard(self, text):
-        """Copy text to clipboard"""
         clipboard = QApplication.clipboard()
         clipboard.setText(text)
 
-        # Show temporary success message
         msg = QMessageBox(self)
         msg.setWindowTitle("Copied")
         msg.setText("✅ URL copied to clipboard!")
@@ -877,14 +690,11 @@ class HomeWindow(QMainWindow):
         msg.exec_()
 
     def generate_qr_code(self, url):
-        """Generate QR code for URL"""
-        # Install: pip install qrcode[pil]
         try:
             import qrcode
             from PIL import ImageQt
             from PyQt5.QtGui import QPixmap
 
-            # Generate QR code
             qr = qrcode.QRCode(
                 version=1,
                 error_correction=qrcode.constants.ERROR_CORRECT_L,
@@ -896,24 +706,19 @@ class HomeWindow(QMainWindow):
 
             img = qr.make_image(fill_color="black", back_color="white")
 
-            # Convert to QPixmap
             qim = ImageQt.ImageQt(img)
             pixmap = QPixmap.fromImage(qim)
 
-            # Show QR code in dialog
             dialog = QMessageBox(self)
             dialog.setWindowTitle("QR Code")
             dialog.setText(f"QR Code for:\n{url}")
 
-            # Create label for QR code
             qr_label = QLabel()
             qr_label.setPixmap(pixmap)
             qr_label.setAlignment(Qt.AlignCenter)
 
-            # Add QR code to dialog
             dialog.layout().addWidget(qr_label, 1, 0, 1, dialog.layout().columnCount())
 
-            # Add Copy URL button
             copy_btn = QPushButton("Copy URL")
             copy_btn.clicked.connect(lambda: self.copy_to_clipboard(url))
             dialog.addButton(copy_btn, QMessageBox.ActionRole)
@@ -927,9 +732,7 @@ class HomeWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to generate QR code: {str(e)}")
 
-    # --- Helper Methods ---
     def _create_nav_button(self, text, name):
-        """Helper to create a stylized navigation button"""
         btn = QPushButton(text)
         btn.setProperty("class", "navButton")
         btn.setObjectName(f"{name}Tab")
@@ -938,7 +741,6 @@ class HomeWindow(QMainWindow):
         return btn
 
     def switch_tab(self, new_tab_name):
-        """Switches the active tab, updates styles, and changes content"""
         buttons = {
             "dashboard": self.dash_btn,
             "history": self.hist_btn,
@@ -956,7 +758,6 @@ class HomeWindow(QMainWindow):
         self.load_content_for_tab(new_tab_name)
 
     def load_content_for_tab(self, tab_name):
-        """Clears existing content and loads new content based on tab_name"""
         while self.content_layout.count():
             item = self.content_layout.takeAt(0)
             widget = item.widget()
@@ -967,8 +768,6 @@ class HomeWindow(QMainWindow):
             self.load_dashboard_content(show_result=False)
 
         elif tab_name == "history":
-            # Create and add History page with user ID
-            from history import HistoryPage
             history_page = HistoryPage(self.get_current_user_id())
             self.content_layout.addWidget(history_page)
 
@@ -984,31 +783,31 @@ class HomeWindow(QMainWindow):
             self.content_layout.addStretch(1)
 
     def load_dashboard_content(self, show_result=False, short_url=None):
-        """Loads the Dashboard content, optionally showing the result card"""
         while self.content_layout.count():
             item = self.content_layout.takeAt(0)
             widget = item.widget()
             if widget:
                 widget.deleteLater()
 
-        # Always add the Shortener Form
         shortener_card = self.create_url_shortener_card()
         self.content_layout.addWidget(shortener_card, alignment=Qt.AlignHCenter)
 
-        # Conditionally add the Result Display
         if show_result:
-            display_url = short_url if short_url else "https://short.ly/default"
+            display_url = short_url if short_url else "https://v.gd/example"
             result_display = self.create_short_link_display(short_url=display_url)
             self.content_layout.addWidget(result_display, alignment=Qt.AlignHCenter)
 
-        # Add stretch at the bottom
         self.content_layout.addStretch(1)
 
     def logout(self):
-        """Hides the HomeWindow and quits the application"""
         if self.worker and self.worker.isRunning():
             self.worker.quit()
             self.worker.wait()
 
-        QApplication.quit()
-
+        if self.auth_app_instance:
+            self.hide()
+            self.auth_app_instance.user_id = None
+            self.auth_app_instance.show()
+            self.auth_app_instance.create_login_form(initial_message="Logged out successfully.", is_success=True)
+        else:
+            QApplication.quit()
