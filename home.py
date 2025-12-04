@@ -308,7 +308,33 @@ class HomeWindow(QMainWindow):
         self.worker = None
 
         self.setStyleSheet("""
-            QMainWindow { background-color: #F8F8F8; } #headerFrame { background-color: white; border-top: 1px solid #D9D9D9; border-bottom: 1px solid #D9D9D9; } #headerTitle { font-family: "Arial"; font-size: 24px; font-weight: bold; color: #10C988; padding-right: 20px; } #logoutButton { background-color: #EF4444; color: white; border-radius: 10px; border: none; font-size: 16px; padding: 5px 15px; } #logoutButton:hover { background-color: #DC2626; } QScrollArea { border: none; background-color: #F8F8F8; } #scrollContent { background-color: #F8F8F8; } .navButton { font-family: "Arial"; font-size: 14px; font-weight: 500; border: none; border-radius: 10px; padding: 10px 15px; margin-right: 8px; cursor: pointer; } .navButton[state="inactive"] { background-color: transparent; color: #6B7280; } .navButton[state="inactive"]:hover { background-color: #E5E7EB; color: #374151; } .navButton[state="active"] { background-color: #E8F8F4; color: #10C988; } .navButton[state="active"]:hover { background-color: #10C988; color: white; } #shortenerCard, #successCard { background-color: white; border-radius: 14px; border: 1px solid #D9D9D9; } #inputLabel { font-family: "Arial"; font-size: 14px; font-weight: 500; color: #374151; } #cardTitle { font-size: 20px; font-weight: bold; color: black; } #cardSubtitle, #successMessage { font-size: 14px; font-weight: normal; color: #6B7280; } #urlInput, #aliasInput, #expirationButton { border: 1px solid #DCDEE5; border-radius: 12px; padding: 10px 15px; background-color: #F3F4F6; color: #374151; font-size: 16px; } #urlInput:focus, #aliasInput:focus, #expirationButton:focus { border: 2px solid #10C988; background-color: #e8eaed; } #expirationButton { text-align: left; background-color: #F3F4F6; cursor: pointer; } #expirationButton:hover { background-color: #E5E7EB; } #createButton { background-color: #10C988; color: white; border-radius: 14px; border: none; font-size: 16px; font-weight: bold; padding: 10px; min-height: 25px; cursor: pointer; } #createButton:hover { background-color: #10C988; } #createButton:pressed { background-color: #10C988; } #createButton:disabled { background-color: #9CA3AF; cursor: not-allowed; } #shortUrlDisplay { background-color: #F8F8F8; border: 1px solid #DCDEE5; border-radius: 12px; padding: 10px 15px; } #shortUrlText { font-size: 16px; font-weight: 500; color: #10C988; } .actionButton { background-color: #E5E7EB; color: #374151; border-radius: 12px; border: 1px solid transparent; font-size: 16px; padding: 10px 20px; min-height: 48px; cursor: pointer; } .actionButton:hover { background-color: #E5E7EB; } .actionButton:pressed { background-color: #E5E7EB; } .actionButton:disabled { background-color: #D1D5DB; color: #9CA3AF; cursor: not-allowed; } #expirationButton::after { content: "▼"; float: right; font-size: 12px; color: #6B7280; }
+            QMainWindow { background-color: #F8F8F8; } #headerFrame { background-color: white; border-top: 1px solid #D9D9D9; border-bottom: 1px solid #D9D9D9; } #headerTitle { font-family: "Arial"; font-size: 24px; font-weight: bold; color: #10C988; padding-right: 20px; } #logoutButton { background-color: #EF4444; color: white; border-radius: 10px; border: none; font-size: 16px; padding: 5px 15px; } #logoutButton:hover { background-color: #DC2626; } QScrollArea { border: none; background-color: #F8F8F8; } #scrollContent { background-color: #F8F8F8; } .navButton { font-family: "Arial"; font-size: 14px; font-weight: 500; border: none; border-radius: 10px; padding: 10px 15px; margin-right: 8px; cursor: pointer; } .navButton[state="inactive"] { background-color: transparent; color: #6B7280; } .navButton[state="inactive"]:hover { background-color: #E5E7EB; color: #374151; } .navButton[state="active"] { background-color: #E8F8F4; color: #10C988; } .navButton[state="active"]:hover { background-color: #10C988; color: white; } #shortenerCard, #successCard { background-color: white; border-radius: 14px; border: 1px solid #D9D9D9; } #inputLabel { font-family: "Arial"; font-size: 14px; font-weight: 500; color: #374151; } #cardTitle { font-size: 20px; font-weight: bold; color: black; } #cardSubtitle, #successMessage { font-size: 14px; font-weight: normal; color: #6B7280; } #urlInput, #aliasInput, #expirationButton { border: 1px solid #DCDEE5; border-radius: 12px; padding: 10px 15px; background-color: #F3F4F6; color: #374151; font-size: 16px; } #urlInput:focus, #aliasInput:focus, #expirationButton:focus { border: 2px solid #10C988; background-color: #e8eaed; } #expirationButton { text-align: left; background-color: #F3F4F6; cursor: pointer; } #expirationButton:hover { background-color: #E5E7EB; } 
+
+            /* Create Short Link Button Style */
+            #createButton, #copyButton { 
+                background-color: #10C988; 
+                color: white; 
+                border-radius: 14px; 
+                border: none; 
+                font-size: 16px; 
+                font-weight: bold; 
+                padding: 10px; 
+                min-height: 25px; /* Ensures a good button height */
+                cursor: pointer;
+            } 
+            #createButton:hover, #copyButton:hover { 
+                background-color: #10C988; /* No change on hover */
+            } 
+            #createButton:pressed, #copyButton:pressed { 
+                background-color: #10C988; /* No change on press */
+            } 
+            #createButton:disabled, #copyButton:disabled { 
+                background-color: #9CA3AF; 
+                cursor: not-allowed; 
+            } 
+            /* End Create/Copy Button Style */
+
+            #shortUrlDisplay { background-color: #F8F8F8; border: 1px solid #DCDEE5; border-radius: 12px; padding: 10px 15px; } #shortUrlText { font-size: 16px; font-weight: 500; color: #10C988; } .actionButton { background-color: #E5E7EB; color: #374151; border-radius: 12px; border: 1px solid transparent; font-size: 16px; padding: 10px 20px; min-height: 48px; cursor: pointer; } .actionButton:hover { background-color: #E5E7EB; } .actionButton:pressed { background-color: #E5E7EB; } .actionButton:disabled { background-color: #D1D5DB; color: #9CA3AF; cursor: not-allowed; } #expirationButton::after { content: "▼"; float: right; font-size: 12px; color: #6B7280; }
         """)
 
         central_widget = QWidget()
@@ -420,17 +446,21 @@ class HomeWindow(QMainWindow):
         success_layout.setContentsMargins(0, 0, 0, 0)
         success_layout.setSpacing(10)
 
-        check_icon = QLabel("✅")
-        check_icon.setFont(QFont("Arial", 18))
+        # Icon and message for the card itself
+        check_icon = QLabel("Short Link Created & Saved")  # Text Label placeholder for the icon/title in the card
+        check_icon.setFont(QFont("Arial", 18, QFont.Bold))
+        check_icon.setStyleSheet("color: #10C988;")
 
         message_label = QLabel("Your shortened link is ready!")
         message_label.setObjectName("successMessage")
+        message_label.setFont(QFont("Arial", 14))
 
         success_layout.addWidget(check_icon)
-        success_layout.addWidget(message_label)
+        # success_layout.addWidget(message_label) # Removed secondary message for a cleaner look
         success_layout.addStretch(1)
 
         card_layout.addWidget(success_frame)
+        card_layout.addWidget(message_label)  # Re-add subtitle below the title
 
         display_frame = QFrame()
         display_frame.setObjectName("shortUrlDisplay")
@@ -438,7 +468,7 @@ class HomeWindow(QMainWindow):
         display_layout.setContentsMargins(0, 0, 0, 0)
         display_layout.setSpacing(2)
 
-        short_label = QLabel("Short URL")
+        short_label = QLabel("Your short link")
         short_label.setObjectName("inputLabel")
 
         self.short_link_text = QLabel(short_url)
@@ -451,29 +481,23 @@ class HomeWindow(QMainWindow):
 
         card_layout.addWidget(display_frame)
 
-        # Action Buttons (Copy, QR) - Use ShadowButton, is_primary=False
+        # --- MODIFIED: Single Copy Button ---
         action_frame = QFrame()
         action_layout = QHBoxLayout(action_frame)
         action_layout.setContentsMargins(0, 0, 0, 0)
         action_layout.setSpacing(10)
 
-        self.copy_btn = ShadowButton("📋 Copy", parent_app=self, is_primary=False)
+        # Use ShadowButton for the primary styling and effects
+        self.copy_btn = ShadowButton("Copy URL", parent_app=self, is_primary=True)
         self.copy_btn.setObjectName("copyButton")
-        self.copy_btn.setProperty("class", "actionButton")
         self.copy_btn.setCursor(Qt.PointingHandCursor)
         self.copy_btn.clicked.connect(lambda: self.copy_to_clipboard(short_url))
 
-        self.qr_btn = ShadowButton("QR", parent_app=self, is_primary=False)
-        self.qr_btn.setObjectName("qrButton")
-        self.qr_btn.setProperty("class", "actionButton")
-        self.qr_btn.setCursor(Qt.PointingHandCursor)
-        self.qr_btn.clicked.connect(lambda: self.generate_qr_code(short_url))
-
-        action_layout.addStretch(1)
+        action_layout.addStretch(1)  # Push button to the right
         action_layout.addWidget(self.copy_btn)
-        action_layout.addWidget(self.qr_btn)
 
         card_layout.addWidget(action_frame)
+        # -------------------------------------
 
         return card
 
@@ -567,7 +591,7 @@ class HomeWindow(QMainWindow):
         card_layout.addWidget(side_by_side_frame)
         card_layout.addSpacing(15)
 
-        self.create_btn = ShadowButton("🔗 Create Short Link", parent_app=self, is_primary=True)
+        self.create_btn = ShadowButton("Create Short Link", parent_app=self, is_primary=True)
         self.create_btn.setObjectName("createButton")
         self.create_btn.clicked.connect(self.handle_create_link)
 
@@ -650,24 +674,17 @@ class HomeWindow(QMainWindow):
         short_url = result.get('short_url', '')
         self.current_short_url = short_url
 
+        # 1. Load the dashboard content to show the visual success card with the link
         self.load_dashboard_content(show_result=True, short_url=short_url)
 
         self.long_url_input.clear()
         self.alias_input.clear()
 
-        success_msg = f"""✅ Short URL created via v.gd and History SAVED!
+        # POP-UP NOTIFICATION REMOVED
 
-📊 Details:
-• Original URL: {result.get('original_url', '')[:60]}...
-• **Accessible Short URL:** {short_url}
-• Short Code: {result.get('short_code', '')}
-
-🔗 The link is public, and the details are stored in your Firebase History.
-"""
-        QMessageBox.information(self, "Success - Link Created & Saved", success_msg)
-
+        # Reset button state
         self.create_btn.setEnabled(True)
-        self.create_btn.setText("🔗 Create Short Link")
+        self.create_btn.setText("Create Short Link")
         self.create_btn.style().polish(self.create_btn)
 
     def on_link_error(self, error_message):
@@ -675,7 +692,7 @@ class HomeWindow(QMainWindow):
                              f"Failed to create or save link:\n\n{error_message}")
 
         self.create_btn.setEnabled(True)
-        self.create_btn.setText("🔗 Create Short Link")
+        self.create_btn.setText("Create Short Link")
         self.create_btn.style().polish(self.create_btn)
 
     def copy_to_clipboard(self, text):
@@ -689,48 +706,7 @@ class HomeWindow(QMainWindow):
         msg.setStandardButtons(QMessageBox.Ok)
         msg.exec_()
 
-    def generate_qr_code(self, url):
-        try:
-            import qrcode
-            from PIL import ImageQt
-            from PyQt5.QtGui import QPixmap
-
-            qr = qrcode.QRCode(
-                version=1,
-                error_correction=qrcode.constants.ERROR_CORRECT_L,
-                box_size=10,
-                border=4,
-            )
-            qr.add_data(url)
-            qr.make(fit=True)
-
-            img = qr.make_image(fill_color="black", back_color="white")
-
-            qim = ImageQt.ImageQt(img)
-            pixmap = QPixmap.fromImage(qim)
-
-            dialog = QMessageBox(self)
-            dialog.setWindowTitle("QR Code")
-            dialog.setText(f"QR Code for:\n{url}")
-
-            qr_label = QLabel()
-            qr_label.setPixmap(pixmap)
-            qr_label.setAlignment(Qt.AlignCenter)
-
-            dialog.layout().addWidget(qr_label, 1, 0, 1, dialog.layout().columnCount())
-
-            copy_btn = QPushButton("Copy URL")
-            copy_btn.clicked.connect(lambda: self.copy_to_clipboard(url))
-            dialog.addButton(copy_btn, QMessageBox.ActionRole)
-
-            dialog.exec_()
-
-        except ImportError:
-            QMessageBox.warning(self, "QR Code Error",
-                                "Please install qrcode and PIL packages:\n"
-                                "pip install qrcode[pil]")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to generate QR code: {str(e)}")
+    # REMOVED: generate_qr_code method is no longer needed
 
     def _create_nav_button(self, text, name):
         btn = QPushButton(text)
@@ -808,6 +784,3 @@ class HomeWindow(QMainWindow):
             self.hide()
             self.auth_app_instance.user_id = None
             self.auth_app_instance.show()
-            self.auth_app_instance.create_login_form(initial_message="Logged out successfully.", is_success=True)
-        else:
-            QApplication.quit()
