@@ -1,353 +1,252 @@
+# history.py (updated)
+import requests
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
-    QHeaderView, QHBoxLayout, QPushButton, QFrame, QLineEdit,
-    QComboBox, QGraphicsDropShadowEffect, QSizePolicy
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget,
+    QTableWidgetItem, QHeaderView, QPushButton, QMessageBox,
+    QProgressBar, QDialog, QLineEdit, QFormLayout, QDialogButtonBox
 )
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFont, QColor
+from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QFont
 
 
 class HistoryPage(QWidget):
-    def __init__(self):
+    def __init__(self, user_id, api_base_url="http://localhost:8000"):
         super().__init__()
-        self.setup_ui()
+        self.user_id = user_id
+        self.api_base_url = api_base_url
+        self.init_ui()
+        self.load_urls()
 
-    def setup_ui(self):
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(40, 40, 40, 40)
-        main_layout.setSpacing(20)
-
-        # Page Header
-        header_widget = self.create_header()
-        main_layout.addWidget(header_widget)
-
-        # Search Bar
-        search_bar = self.create_search_bar()
-        main_layout.addWidget(search_bar)
-
-        # Links Table
-        table_widget = self.create_links_table()
-        main_layout.addWidget(table_widget, 1)  # 1 = stretch factor
-
-        # Add some space at the bottom
-        main_layout.addStretch(1)
-
-    def create_header(self):
-        frame = QFrame()
-        frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-
-        layout = QVBoxLayout(frame)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setSpacing(20)
 
         # Title
-        title_label = QLabel("My Links")
-        title_label.setFont(QFont("Arial", 24, QFont.Bold))
-        title_label.setStyleSheet("color: #374151;")
-        layout.addWidget(title_label)
+        title = QLabel("URL History")
+        title.setFont(QFont("Arial", 24, QFont.Bold))
+        title.setStyleSheet("color: #10C988;")
+        layout.addWidget(title)
 
-        # Subtitle
-        subtitle_label = QLabel("Manage and track all your shortened links")
-        subtitle_label.setFont(QFont("Arial", 14))
-        subtitle_label.setStyleSheet("color: #6B7280;")
-        layout.addWidget(subtitle_label)
+        # Stats bar
+        self.stats_label = QLabel("Loading...")
+        layout.addWidget(self.stats_label)
 
-        return frame
+        # Refresh button
+        refresh_btn = QPushButton("🔄 Refresh")
+        refresh_btn.clicked.connect(self.load_urls)
+        refresh_btn.setMaximumWidth(100)
+        layout.addWidget(refresh_btn)
 
-    def create_search_bar(self):
-        frame = QFrame()
-        frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        frame.setFixedHeight(56)
+        # Progress bar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        layout.addWidget(self.progress_bar)
 
-        # Create shadow effect
-        shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(10)
-        shadow.setOffset(0, 2)
-        shadow.setColor(QColor(0, 0, 0, 10))
-        frame.setGraphicsEffect(shadow)
+        # Table
+        self.table = QTableWidget()
+        self.table.setColumnCount(6)
+        self.table.setHorizontalHeaderLabels(["Short URL", "Original URL", "Clicks", "Created", "Expires", "Actions"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.setAlternatingRowColors(True)
+        layout.addWidget(self.table)
 
-        frame.setStyleSheet("""
-            QFrame {
-                background-color: white;
-                border-radius: 12px;
-                border: 1px solid #D9D9D9;
-            }
-        """)
+    def load_urls(self):
+        """Load URLs from the backend database"""
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
 
-        layout = QHBoxLayout(frame)
-        layout.setContentsMargins(20, 0, 20, 0)
+        try:
+            self.progress_bar.setValue(30)
+            response = requests.get(f"{self.api_base_url}/api/urls/{self.user_id}", timeout=10)
+            self.progress_bar.setValue(70)
 
-        # Search icon
-        search_icon = QLabel("🔍")
-        search_icon.setFont(QFont("Arial", 14))
-        layout.addWidget(search_icon)
+            if response.status_code == 200:
+                urls = response.json()
+                self.progress_bar.setValue(90)
+                self.update_table(urls)
+                self.update_stats(len(urls))
 
-        # Search input
-        search_input = QLineEdit()
-        search_input.setPlaceholderText("Search by URL or alias...")
-        search_input.setStyleSheet("""
-            QLineEdit {
-                border: none;
-                background-color: transparent;
-                font-size: 14px;
-                color: #374151;
-                padding: 15px 10px;
-            }
-            QLineEdit:focus {
-                border: none;
-                outline: none;
-            }
-        """)
-        layout.addWidget(search_input, 1)  # 1 = stretch factor
+                # Show database status
+                if len(urls) > 0:
+                    self.stats_label.setText(f"✅ Connected to database. Found {len(urls)} URLs.")
+                    self.stats_label.setStyleSheet("color: #10C988;")
+                else:
+                    self.stats_label.setText("✅ Connected to database. No URLs found yet.")
+                    self.stats_label.setStyleSheet("color: #10C988;")
 
-        # Filter dropdown
-        filter_combo = QComboBox()
-        filter_combo.addItems(["All links", "Active", "Expired", "Most clicked"])
-        filter_combo.setStyleSheet("""
-            QComboBox {
-                border: 1px solid #DCDEE5;
-                border-radius: 8px;
-                padding: 8px 12px;
-                background-color: white;
-                font-size: 14px;
-                color: #374151;
-                min-width: 120px;
-            }
-            QComboBox::drop-down {
-                border: none;
-            }
-            QComboBox::down-arrow {
-                image: none;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 5px solid #6B7280;
-                margin-right: 8px;
-            }
-        """)
-        layout.addWidget(filter_combo)
+            else:
+                self.stats_label.setText("❌ Failed to load URLs from database")
+                self.stats_label.setStyleSheet("color: #EF4444;")
+                QMessageBox.warning(self, "Error",
+                                    f"Failed to load URLs. Status: {response.status_code}")
 
-        return frame
+        except requests.exceptions.ConnectionError:
+            self.stats_label.setText("❌ Cannot connect to backend server")
+            self.stats_label.setStyleSheet("color: #EF4444;")
+            QMessageBox.critical(self, "Connection Error",
+                                 "Cannot connect to the server. Please check:\n"
+                                 "1. Backend is running (python main.py)\n"
+                                 f"2. Server URL: {self.api_base_url}")
+        except Exception as e:
+            self.stats_label.setText("❌ Error loading URLs")
+            self.stats_label.setStyleSheet("color: #EF4444;")
+            QMessageBox.critical(self, "Error", f"Error: {str(e)}")
+        finally:
+            self.progress_bar.setValue(100)
+            QTimer.singleShot(500, lambda: self.progress_bar.setVisible(False))
 
-    def create_links_table(self):
-        frame = QFrame()
-        frame.setStyleSheet("""
-            QFrame {
-                background-color: white;
-                border-radius: 12px;
-                border: 1px solid #D9D9D9;
-            }
-        """)
+    def update_stats(self, count):
+        """Update statistics label"""
+        self.stats_label.setText(f"Database Status: ✅ Connected | URLs in database: {count}")
 
-        # Create shadow effect
-        shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(10)
-        shadow.setOffset(0, 2)
-        shadow.setColor(QColor(0, 0, 0, 10))
-        frame.setGraphicsEffect(shadow)
+    def update_table(self, urls):
+        """Update the table with URL data"""
+        self.table.setRowCount(len(urls))
 
-        layout = QVBoxLayout(frame)
-        layout.setContentsMargins(0, 0, 0, 0)
+        for row, url_data in enumerate(urls):
+            # Short URL
+            short_code = url_data.get('short_code', '')
+            short_url = f"{self.api_base_url}/{short_code}"
+            short_url_item = QTableWidgetItem(short_url)
+            short_url_item.setFlags(short_url_item.flags() ^ Qt.ItemIsEditable)
+            self.table.setItem(row, 0, short_url_item)
 
-        # Create table
-        table = QTableWidget()
-        table.setColumnCount(5)
-        table.setHorizontalHeaderLabels([
-            "Original URL", "Short URL", "Clicks", "Created", "Actions"
-        ])
-
-        # Style the table
-        table.setStyleSheet("""
-            QTableWidget {
-                border: none;
-                background-color: white;
-                gridline-color: #E5E7EB;
-                selection-background-color: #E8F8F4;
-            }
-            QHeaderView::section {
-                background-color: #F2F3F5;
-                padding: 16px 20px;
-                border: none;
-                font-weight: 600;
-                font-size: 14px;
-                color: #374151;
-                text-align: left;
-            }
-            QTableWidget::item {
-                padding: 20px;
-                border: none;
-                border-bottom: 1px solid #E5E7EB;
-                font-size: 14px;
-                color: #666E7D;
-            }
-        """)
-
-        # Configure table
-        table.setAlternatingRowColors(False)
-        table.verticalHeader().setVisible(False)
-        table.setShowGrid(False)
-        table.setEditTriggers(QTableWidget.NoEditTriggers)
-        table.setSelectionBehavior(QTableWidget.SelectRows)
-
-        # Set column resize policies
-        header = table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Stretch)  # Original URL
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Short URL
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Clicks
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Created
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # Actions
-
-        # Set column widths
-        table.setColumnWidth(1, 150)  # Short URL
-        table.setColumnWidth(2, 100)  # Clicks
-        table.setColumnWidth(3, 120)  # Created
-        table.setColumnWidth(4, 180)  # Actions
-
-        # Add sample data (matching your image)
-        self.populate_sample_data(table)
-
-        layout.addWidget(table)
-        return frame
-
-    def create_action_buttons(self):
-        """Creates the action buttons for each row"""
-        container = QWidget()
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-
-        # Copy button
-        copy_btn = QPushButton("📋")
-        copy_btn.setToolTip("Copy")
-        copy_btn.setFixedSize(32, 32)
-        copy_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #E5E7EB;
-                border-radius: 8px;
-                border: none;
-                font-size: 14px;
-                color: #374151;
-            }
-            QPushButton:hover {
-                background-color: #D1D5DB;
-            }
-        """)
-
-        # QR button
-        qr_btn = QPushButton("QR")
-        qr_btn.setToolTip("QR Code")
-        qr_btn.setFixedSize(32, 32)
-        qr_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #E5E7EB;
-                border-radius: 8px;
-                border: none;
-                font-size: 12px;
-                color: #374151;
-                font-weight: 500;
-            }
-            QPushButton:hover {
-                background-color: #D1D5DB;
-            }
-        """)
-
-        # Analytics button
-        analytics_btn = QPushButton("📈")
-        analytics_btn.setToolTip("Analytics")
-        analytics_btn.setFixedSize(32, 32)
-        analytics_btn.setStyleSheet(copy_btn.styleSheet())
-
-        # Delete button
-        delete_btn = QPushButton("🗑️")
-        delete_btn.setToolTip("Delete")
-        delete_btn.setFixedSize(32, 32)
-        delete_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #FEE2E2;
-                border-radius: 8px;
-                border: none;
-                font-size: 14px;
-                color: #DC2626;
-            }
-            QPushButton:hover {
-                background-color: #FECACA;
-            }
-        """)
-
-        layout.addWidget(copy_btn)
-        layout.addWidget(qr_btn)
-        layout.addWidget(analytics_btn)
-        layout.addWidget(delete_btn)
-        layout.addStretch()
-
-        return container
-
-    def populate_sample_data(self, table):
-        # Sample data matching your image
-        sample_data = [
-            {
-                "original_url": "https://example.com/very-long-article-about-techno...",
-                "short_url": "https://short.ly/abc123",
-                "clicks": "1,247",
-                "created": "1/15/2024",
-                "actions": self.create_action_buttons()
-            },
-            {
-                "original_url": "https://github.com/username/repository-name",
-                "short_url": "https://short.ly/gh-repo",
-                "clicks": "856",
-                "created": "1/10/2024",
-                "actions": self.create_action_buttons()
-            },
-            {
-                "original_url": "https://medium.com/article-title-goes-here",
-                "short_url": "https://short.ly/med-art",
-                "clicks": "432",
-                "created": "1/5/2024",
-                "actions": self.create_action_buttons()
-            },
-            {
-                "original_url": "https://discord.com/channels/1141321686059323393/...",
-                "short_url": "https://short.ly/discord",
-                "clicks": "321",
-                "created": "1/3/2024",
-                "actions": self.create_action_buttons()
-            },
-            {
-                "original_url": "https://stackoverflow.com/questions/123456/...",
-                "short_url": "https://short.ly/stack",
-                "clicks": "215",
-                "created": "1/1/2024",
-                "actions": self.create_action_buttons()
-            }
-        ]
-
-        table.setRowCount(len(sample_data))
-
-        for row, data in enumerate(sample_data):
-            # Original URL (with truncation for long URLs)
-            original_item = QTableWidgetItem(data["original_url"])
-            original_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            table.setItem(row, 0, original_item)
-
-            # Short URL (clickable style)
-            short_item = QTableWidgetItem(data["short_url"])
-            short_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            short_item.setForeground(QColor("#10C988"))  # Green color for short URLs
-            table.setItem(row, 1, short_item)
+            # Original URL (truncated if too long)
+            original_url = url_data.get('original_url', '')
+            if len(original_url) > 40:
+                original_url = original_url[:40] + "..."
+            original_url_item = QTableWidgetItem(original_url)
+            original_url_item.setToolTip(url_data.get('original_url', ''))
+            original_url_item.setFlags(original_url_item.flags() ^ Qt.ItemIsEditable)
+            self.table.setItem(row, 1, original_url_item)
 
             # Clicks
-            clicks_item = QTableWidgetItem(data["clicks"])
-            clicks_item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
-            table.setItem(row, 2, clicks_item)
+            clicks = url_data.get('clicks', 0)
+            clicks_item = QTableWidgetItem(str(clicks))
+            clicks_item.setFlags(clicks_item.flags() ^ Qt.ItemIsEditable)
+            if clicks > 0:
+                clicks_item.setForeground(QColor("#10C988"))
+            self.table.setItem(row, 2, clicks_item)
 
             # Created date
-            created_item = QTableWidgetItem(data["created"])
-            created_item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
-            table.setItem(row, 3, created_item)
+            created = url_data.get('created_at', '')
+            if created:
+                created = created.split('T')[0]  # Get just the date part
+            created_item = QTableWidgetItem(created)
+            created_item.setFlags(created_item.flags() ^ Qt.ItemIsEditable)
+            self.table.setItem(row, 3, created_item)
 
-            # Actions (set widget instead of item)
-            table.setCellWidget(row, 4, data["actions"])
+            # Expiration
+            expires = url_data.get('expires_at', '')
+            if expires:
+                expires = expires.split('T')[0]
+            else:
+                expires = "Never"
+            expires_item = QTableWidgetItem(expires)
+            expires_item.setFlags(expires_item.flags() ^ Qt.ItemIsEditable)
+            self.table.setItem(row, 4, expires_item)
 
-        # Adjust row heights
-        for row in range(table.rowCount()):
-            table.setRowHeight(row, 64)
+            # Actions
+            action_widget = QWidget()
+            action_layout = QHBoxLayout(action_widget)
+            action_layout.setContentsMargins(5, 5, 5, 5)
+            action_layout.setSpacing(5)
+
+            copy_btn = QPushButton("📋")
+            copy_btn.setToolTip("Copy URL")
+            copy_btn.setMaximumWidth(40)
+            copy_btn.clicked.connect(lambda _, url=short_url: self.copy_url(url))
+
+            qr_btn = QPushButton("QR")
+            qr_btn.setToolTip("Generate QR Code")
+            qr_btn.setMaximumWidth(40)
+            qr_btn.clicked.connect(lambda _, url=short_url: self.generate_qr_code(url))
+
+            delete_btn = QPushButton("🗑️")
+            delete_btn.setToolTip("Delete URL")
+            delete_btn.setMaximumWidth(40)
+            delete_btn.setStyleSheet("background-color: #EF4444; color: white;")
+            delete_btn.clicked.connect(lambda _, url_id=url_data.get('id', ''):
+                                       self.delete_url(url_id, short_code))
+
+            action_layout.addWidget(copy_btn)
+            action_layout.addWidget(qr_btn)
+            action_layout.addWidget(delete_btn)
+            action_layout.addStretch()
+
+            self.table.setCellWidget(row, 5, action_widget)
+
+    def copy_url(self, url):
+        """Copy URL to clipboard"""
+        from PyQt5.QtWidgets import QApplication
+        clipboard = QApplication.clipboard()
+        clipboard.setText(url)
+        QMessageBox.information(self, "Copied", f"URL copied to clipboard!\n\n{url}")
+
+    def generate_qr_code(self, url):
+        """Generate QR code for URL"""
+        try:
+            import qrcode
+            from PIL import ImageQt
+            from PyQt5.QtGui import QPixmap
+
+            qr = qrcode.QRCode(
+                version=1,
+                error_correction=qrcode.constants.ERROR_CORRECT_L,
+                box_size=10,
+                border=4,
+            )
+            qr.add_data(url)
+            qr.make(fit=True)
+
+            img = qr.make_image(fill_color="black", back_color="white")
+
+            qim = ImageQt.ImageQt(img)
+            pixmap = QPixmap.fromImage(qim)
+
+            dialog = QMessageBox(self)
+            dialog.setWindowTitle("QR Code")
+            dialog.setText(f"QR Code for:\n{url}")
+
+            qr_label = QLabel()
+            qr_label.setPixmap(pixmap)
+            qr_label.setAlignment(Qt.AlignCenter)
+
+            dialog.layout().addWidget(qr_label, 1, 0, 1, dialog.layout().columnCount())
+            dialog.exec_()
+
+        except ImportError:
+            QMessageBox.warning(self, "QR Code Error",
+                                "Please install qrcode[pil] package")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to generate QR code: {str(e)}")
+
+    def delete_url(self, url_id, short_code):
+        """Delete URL from database"""
+        reply = QMessageBox.question(
+            self, "Confirm Delete",
+            f"Are you sure you want to delete URL: {short_code}?\n\n"
+            "This action cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            try:
+                # This would be your delete endpoint
+                # response = requests.delete(f"{self.api_base_url}/api/urls/{url_id}")
+                # For now, show message
+                QMessageBox.information(
+                    self, "Delete Function",
+                    f"Delete functionality for URL: {short_code}\n\n"
+                    "In a real implementation, this would:\n"
+                    "1. Send DELETE request to backend\n"
+                    "2. Remove from database\n"
+                    "3. Refresh the table"
+                )
+                # Refresh the table after deletion
+                # self.load_urls()
+
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to delete URL: {str(e)}")
