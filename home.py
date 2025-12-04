@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QFont, QColor, QPainter, QPen
+from history import HistoryPage
 
 
 class ExpirationDialog(QFrame):
@@ -294,7 +295,7 @@ class HomeWindow(QMainWindow):
                 font-size: 16px; 
                 font-weight: bold;
                 padding: 10px;
-                min-height: 48px;
+                min-height: 25px;
                 cursor: pointer;
             }
             #createButton:hover {
@@ -521,8 +522,6 @@ class HomeWindow(QMainWindow):
         title_layout = QHBoxLayout(title_frame)
         title_layout.setContentsMargins(0, 0, 0, 0)
 
-        star_icon = QLabel("⚡")
-        star_icon.setFont(QFont("Arial", 20))
 
         title_container = QFrame()
         title_vbox = QVBoxLayout(title_container)
@@ -537,7 +536,6 @@ class HomeWindow(QMainWindow):
         title_vbox.addWidget(card_title)
         title_vbox.addWidget(card_subtitle)
 
-        title_layout.addWidget(star_icon)
         title_layout.addWidget(title_container)
         title_layout.addStretch(1)
 
@@ -550,7 +548,7 @@ class HomeWindow(QMainWindow):
 
         self.long_url_input = QLineEdit()
         self.long_url_input.setObjectName("urlInput")
-        self.long_url_input.setPlaceholderText("https://discord.com/channels/1141321686059323393/...")
+        self.long_url_input.setPlaceholderText("https://example.com/very-long-url...")
 
         card_layout.addWidget(url_label)
         card_layout.addWidget(self.long_url_input)
@@ -572,7 +570,7 @@ class HomeWindow(QMainWindow):
         alias_label.setObjectName("inputLabel")
         self.alias_input = QLineEdit()
         self.alias_input.setObjectName("aliasInput")
-        self.alias_input.setPlaceholderText("haha")
+        self.alias_input.setPlaceholderText("my custom link")
         alias_vbox.addWidget(alias_label)
         alias_vbox.addWidget(self.alias_input)
 
@@ -719,15 +717,9 @@ class HomeWindow(QMainWindow):
             self.load_dashboard_content(show_result=False)
 
         elif tab_name == "history":
-            title = QLabel("Page: History")
-            title.setFont(QFont("Arial", 48, QFont.Bold))
-            title.setAlignment(Qt.AlignCenter)
-            self.content_layout.addWidget(title)
-
-            content_label = QLabel("Viewing your recent activity history...")
-            content_label.setFont(QFont("Arial", 24))
-            self.content_layout.addWidget(content_label)
-            self.content_layout.addStretch(1)
+            # Create and add History page
+            history_page = HistoryPage()
+            self.content_layout.addWidget(history_page)
 
         elif tab_name == "settings":
             title = QLabel("Page: Settings")
