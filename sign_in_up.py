@@ -1,15 +1,28 @@
 import sys
+import requests
+import json
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
     QLineEdit, QPushButton, QLabel, QFrame, QGraphicsDropShadowEffect, QSizePolicy
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont, QColor
 
 # --- Import the HomeWindow from home.py ---
-from home import HomeWindow
+try:
+    from home import HomeWindow
+except ImportError:
+    # Fallback for testing if home.py is not yet available
+    class HomeWindow(QMainWindow):
+        def __init__(self, parent=None, user_id=None):
+            super().__init__(parent)
+            self.setWindowTitle(f"Home Window (User: {user_id or 'Unknown'})")
+            self.setGeometry(100, 100, 800, 600)
+            label = QLabel(f"Welcome Home! User ID: {user_id}", self)
+            label.setAlignment(Qt.AlignCenter)
+            self.setCentralWidget(label)
 
-# --- STYLESHEET ---
+# --- STYLESHEET (Unchanged) ---
 STYLESHEET = """
 QMainWindow {
     background-color: #F8F8F8; 
@@ -26,6 +39,13 @@ QLabel {
     font-size: 14px; 
     font-weight: 500; 
     color: #374151;
+}
+
+#statusMessage {
+    /* Base style for any status message (color set dynamically in Python) */
+    font-weight: 600;
+    font-size: 14px;
+    padding: 8px 0;
 }
 
 #mainTitle {
@@ -113,6 +133,10 @@ class AuthApp(QMainWindow):
         self.resize(1440, 1024)
         self.setStyleSheet(STYLESHEET)
 
+        # 🟢 API Configuration (Must match the FastAPI server)
+        self.api_url = "http://127.0.0.1:8000/api"
+        self.user_id = None  # Stores the authenticated user ID from the server
+
         # Variable to hold the HomeWindow instance
         self.home_window = None
 
@@ -140,6 +164,9 @@ class AuthApp(QMainWindow):
 
         self.main_layout.addSpacing(30)
 
+        # --- Status Label Placeholder (Used for Error and Success) ---
+        self.status_label = None
+
         # --- Auth Card ---
         self.auth_card = QFrame()
         self.auth_card.setObjectName("authCard")
@@ -164,24 +191,39 @@ class AuthApp(QMainWindow):
         # Start with login form
         self.create_login_form()
 
-    # --- New Method for Login Success and Window Transition ---
-    def login_success(self):
-        """Hides the current AuthApp window and displays the HomeWindow."""
+    # --- Status Message Helpers ---
+    def set_status_message(self, message, is_success):
+        """Sets the status message text and styling (color)."""
+        if self.status_label:
+            color = "#10C988" if is_success else "#EF4444"  # Green for success, Red for error
+            self.status_label.setText(message)
+            self.status_label.setStyleSheet(f"QLabel#statusMessage {{ color: {color}; }}")
+            self.status_label.show()
 
+    # --- Window Transition ---
+    def login_success(self):
+        """Triggers the window transition after a brief delay."""
+        # This is where the successful login redirects the information (self.user_id)
+        QTimer.singleShot(800, self._transition_to_home)
+
+    def _transition_to_home(self):
+        """Internal method to handle the window swap."""
+        # Create HomeWindow only once, passing the authenticated user_id
         if self.home_window is None:
-            # Pass 'self' (the AuthApp instance) to the HomeWindow constructor
-            self.home_window = HomeWindow(self)
+            # Passes the user_id retrieved from the successful API response
+            self.home_window = HomeWindow(self, user_id=self.user_id)
 
         self.home_window.show()
         self.hide()
 
-    def closeEvent(self, event):
-        """Handle the close event for the main window, ensuring the HomeWindow is also closed."""
-        if self.home_window:
-            self.home_window.close()
-        event.accept()
+    def clear_card_layout(self):
+        while self.card_layout.count():
+            item = self.card_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
 
-    # --- Helper Methods ---
+    # --- Helper Methods for UI (input and button creation) ---
     def create_input_field(self, placeholder, is_password=False):
         field = QLineEdit()
         field.setPlaceholderText(placeholder)
@@ -196,32 +238,22 @@ class AuthApp(QMainWindow):
         button = QPushButton(text)
         button.setMinimumHeight(48)
         button.setObjectName("primaryButton")
-        button.enterEvent = lambda e, b=button: self.apply_button_shadow(b)
-        button.leaveEvent = lambda e, b=button: self.remove_button_shadow(b)
         return button
 
-    def apply_button_shadow(self, button):
-        shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(25)
-        shadow.setOffset(0, 3)
-        shadow.setColor(QColor(0, 180, 120, 120))
-        button.setGraphicsEffect(shadow)
-
-    def remove_button_shadow(self, button):
-        button.setGraphicsEffect(None)
-
-    def clear_card_layout(self):
-        while self.card_layout.count():
-            item = self.card_layout.takeAt(0)
-            widget = item.widget()
-            if widget:
-                widget.deleteLater()
-
     # --- Login Form ---
-    def create_login_form(self):
+    def create_login_form(self, initial_message=None, is_success=False):
         self.main_title.setText("Welcome Back")
         self.main_subtitle.setText("Sign in to your account")
         self.clear_card_layout()
+
+        self.status_label = QLabel("Status Message Placeholder")
+        self.status_label.setObjectName("statusMessage")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.hide()
+        self.card_layout.addWidget(self.status_label)
+
+        if initial_message:
+            self.set_status_message(initial_message, is_success)
 
         self.card_layout.addWidget(QLabel("Email"))
         email_input = self.create_input_field("Email")
@@ -236,8 +268,7 @@ class AuthApp(QMainWindow):
         self.card_layout.addSpacing(14)
 
         login_btn = self.create_primary_button("Login")
-        # --- CONNECT THE LOGIN BUTTON TO TRANSITION METHOD ---
-        login_btn.clicked.connect(self.login_success)
+        login_btn.clicked.connect(lambda: self.validate_login(email_input.text(), pw_input.text()))
 
         self.card_layout.addWidget(login_btn)
 
@@ -247,11 +278,52 @@ class AuthApp(QMainWindow):
         self.card_layout.addWidget(switch_label)
         self.auth_card.adjustSize()
 
+    # 🟢 API Call for Login
+    def validate_login(self, email, password):
+        """Attempts to log in via the FastAPI backend."""
+        if not email or not password:
+            self.set_status_message("Email and Password are required.", False)
+            return
+
+        self.set_status_message("Logging in...", True)
+
+        url = f"{self.api_url}/login"
+        payload = {"email": email, "password": password}
+
+        try:
+            response = requests.post(url, json=payload, timeout=5)
+
+            if response.status_code == 200:
+                # Login successful: Extract user_id from the server response
+                user_data = response.json()
+                self.user_id = user_data.get("user_id")  # <-- Capturing the user ID!
+
+                self.set_status_message("Login successful! Redirecting...", True)
+                self.login_success()
+            else:
+                # Handle API errors
+                try:
+                    error_detail = response.json().get("detail", "Login failed due to server error.")
+                except json.JSONDecodeError:
+                    error_detail = f"Login failed: Server responded with status {response.status_code}"
+                self.set_status_message(error_detail, False)
+
+        except requests.exceptions.ConnectionError:
+            self.set_status_message("Connection error: Is the FastAPI server running on 127.0.0.1:8000?", False)
+        except requests.exceptions.RequestException as e:
+            self.set_status_message(f"An unexpected error occurred: {e}", False)
+
     # --- Signup Form ---
     def create_signup_form(self):
         self.main_title.setText("Join Shortly Desktop")
         self.main_subtitle.setText("Create your account to get started")
         self.clear_card_layout()
+
+        self.status_label = QLabel("Status Message Placeholder")
+        self.status_label.setObjectName("statusMessage")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.hide()
+        self.card_layout.addWidget(self.status_label)
 
         self.card_layout.addWidget(QLabel("Email"))
         email_input = self.create_input_field("Email")
@@ -272,8 +344,8 @@ class AuthApp(QMainWindow):
         self.card_layout.addSpacing(14)
 
         create_btn = self.create_primary_button("Create Account")
-        # NOTE: For signup, we don't connect it to a success screen,
-        # but a real app would connect it to the registration logic.
+        create_btn.clicked.connect(lambda: self.validate_signup(email_input.text(), pw_input.text(), cpw_input.text()))
+
         self.card_layout.addWidget(create_btn)
 
         self.card_layout.addSpacing(15)
@@ -281,6 +353,43 @@ class AuthApp(QMainWindow):
         switch_label = HoverLabel("Already have an account?", "Back to Login", self.create_login_form, font_size=14)
         self.card_layout.addWidget(switch_label)
         self.auth_card.adjustSize()
+
+    # 🟢 API Call for Signup
+    def validate_signup(self, email, password, confirm_password):
+        """Handles local validation and then attempts to sign up via the FastAPI backend."""
+
+        # 1. Local validation checks
+        if not email or not password or not confirm_password:
+            self.set_status_message("All fields are required.", False)
+            return
+        elif password != confirm_password:
+            self.set_status_message("Passwords do not match.", False)
+            return
+
+        self.set_status_message("Creating account...", True)
+
+        url = f"{self.api_url}/signup"
+        payload = {"email": email, "password": password}
+
+        try:
+            response = requests.post(url, json=payload, timeout=5)
+
+            if response.status_code == 200:
+                # Signup successful: Switch back to login form
+                success_message = "Account successfully created! Please log in."
+                self.create_login_form(initial_message=success_message, is_success=True)
+            else:
+                # Handle API errors
+                try:
+                    error_detail = response.json().get("detail", "Signup failed due to server error.")
+                except json.JSONDecodeError:
+                    error_detail = f"Signup failed: Server responded with status {response.status_code}"
+                self.set_status_message(error_detail, False)
+
+        except requests.exceptions.ConnectionError:
+            self.set_status_message("Connection error: Is the FastAPI server running on 127.0.0.1:8000?", False)
+        except requests.exceptions.RequestException as e:
+            self.set_status_message(f"An unexpected error occurred: {e}", False)
 
 
 if __name__ == "__main__":

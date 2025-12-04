@@ -1,158 +1,178 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-import firebase_admin
-from firebase_admin import credentials, firestore
-import secrets
-from datetime import datetime, timedelta
-import validators
-from typing import Optional
-import os
-from dotenv import load_dotenv
+import sys
+import requests
+from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QLabel, QScrollArea, QFrame, QHBoxLayout, QTableWidget, \
+    QTableWidgetItem, QHeaderView, QSizePolicy
+from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QFont, QColor
 
-load_dotenv()
+# API URL must match the server
+API_URL = "http://127.0.0.1:8000/api"
 
-# Initialize Firebase
-if not firebase_admin._apps:
-    # Use service account JSON or environment variables
-    cred = credentials.Certificate("url-shortener-c2632-firebase-adminsdk-fbsvc-c9980498ad.json")  # Or use env vars
-    firebase_admin.initialize_app(cred)
+STYLESHEET = """
+QMainWindow {
+    background-color: #F8F8F8; 
+}
+#mainTitle {
+    font-size: 30px; 
+    font-weight: bold;
+    color: #10C988;
+}
+QLabel {
+    font-family: "Arial";
+    font-size: 16px; 
+    color: #374151;
+}
+#userIdLabel {
+    font-size: 18px; 
+    font-weight: bold;
+    color: #374151;
+    background-color: #E6F7F0;
+    padding: 10px;
+    border-radius: 8px;
+}
+#dashboardTitle {
+    font-size: 24px;
+    font-weight: 600;
+    color: #374151;
+}
+QTableWidget {
+    border: 1px solid #D9D9D9;
+    border-radius: 10px;
+    gridline-color: #E5E7EB;
+    background-color: white;
+    font-size: 14px;
+    alternate-background-color: #F9FAFB;
+}
+QHeaderView::section {
+    background-color: #F3F4F6;
+    color: #4B5563;
+    padding: 8px;
+    border-bottom: 2px solid #D1D5DB;
+    font-weight: bold;
+}
+"""
 
-db = firestore.client()
 
-app = FastAPI(title="Shortly API")
+class HomeWindow(QMainWindow):
+    """
+    Main application window displayed after successful authentication.
+    It fetches and displays user-specific data from the FastAPI server.
+    """
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+    def __init__(self, parent=None, user_id=None):
+        super().__init__(parent)
+        self.user_id = user_id
+        self.setWindowTitle("Shortly Desktop - Dashboard")
+        self.setGeometry(100, 100, 1200, 800)
+        self.setStyleSheet(STYLESHEET)
 
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
 
-class CreateShortUrlRequest(BaseModel):
-    original_url: str
-    alias: Optional[str] = None
-    expiration: str = "30 days"
-    user_id: Optional[str] = None
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+        main_layout.setSpacing(25)
+        main_layout.setContentsMargins(50, 50, 50, 50)
 
+        # 1. Main Header
+        title = QLabel("Welcome to Shortly, your URL Shortener.")
+        title.setObjectName("mainTitle")
+        title.setAlignment(Qt.AlignCenter)
+        main_layout.addWidget(title)
 
-class ShortUrlResponse(BaseModel):
-    short_url: str
-    original_url: str
-    alias: Optional[str] = None
-    expiration: str
-    created_at: str
-    short_code: str
+        # 2. User ID Display
+        user_id_label = QLabel(self.user_id if self.user_id else "N/A (Error)")
+        user_id_label.setObjectName("userIdLabel")
+        user_id_label.setAlignment(Qt.AlignCenter)
 
+        user_box = QFrame()
+        user_box_layout = QVBoxLayout(user_box)
+        user_box_layout.addWidget(QLabel("Authenticated User ID:"))
+        user_box_layout.addWidget(user_id_label)
+        user_box_layout.setAlignment(Qt.AlignCenter)
+        main_layout.addWidget(user_box)
 
-def generate_short_code(length=6):
-    alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-    return ''.join(secrets.choice(alphabet) for _ in range(length))
+        # 3. Info Label
+        info_label = QLabel("You are securely connected. Below is your data fetched live from Firebase via FastAPI.")
+        info_label.setWordWrap(True)
+        info_label.setAlignment(Qt.AlignCenter)
+        main_layout.addWidget(info_label)
 
+        # 4. Dashboard Title
+        dashboard_title = QLabel("Your Shortened URLs")
+        dashboard_title.setObjectName("dashboardTitle")
+        main_layout.addWidget(dashboard_title)
 
-def parse_expiration(expiration_str: str) -> int:
-    if expiration_str.lower() == "never":
-        return 365 * 100
-    elif "days" in expiration_str:
+        # 5. URLs Table Area
+        self.url_table = self._create_url_table()
+        main_layout.addWidget(self.url_table)
+
+        # 6. Status Label for data fetch
+        self.data_status_label = QLabel("Fetching data...")
+        self.data_status_label.setStyleSheet("color: #F59E0B; font-weight: 600;")
+        main_layout.addWidget(self.data_status_label)
+
+        main_layout.addStretch()
+
+        # 7. Start data fetching after window creation
+        QTimer.singleShot(100, self.fetch_user_urls)
+
+    def _create_url_table(self):
+        table = QTableWidget(0, 4)
+        table.setHorizontalHeaderLabels(["Short Code", "Original URL", "Clicks", "Created At"])
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.setAlternatingRowColors(True)
+        table.setMinimumHeight(300)
+        return table
+
+    def fetch_user_urls(self):
+        """Calls the FastAPI server to get the user's URLs."""
+        if not self.user_id:
+            self.data_status_label.setText("Error: No authenticated user ID.")
+            self.data_status_label.setStyleSheet("color: #EF4444; font-weight: 600;")
+            return
+
+        # Uses the user_id passed from the AuthApp after successful login
+        url = f"{API_URL}/urls/{self.user_id}"
+
         try:
-            return int(expiration_str.split()[0])
-        except:
-            return 30
-    return 30
+            # Synchronous GET request
+            response = requests.get(url, timeout=5)
 
+            if response.status_code == 200:
+                urls_data = response.json()
+                self._populate_url_table(urls_data)
+                self.data_status_label.setText(f"Successfully loaded {len(urls_data)} URL(s) from Firebase.")
+                self.data_status_label.setStyleSheet("color: #10B981; font-weight: 600;")
+            else:
+                error_detail = response.json().get("detail", f"Failed with status {response.status_code}")
+                self.data_status_label.setText(f"API Error fetching URLs: {error_detail}")
+                self.data_status_label.setStyleSheet("color: #EF4444; font-weight: 600;")
 
-@app.post("/api/shorten", response_model=ShortUrlResponse)
-async def create_short_url(request: CreateShortUrlRequest):
-    # Validate URL
-    original_url = request.original_url
-    if not original_url.startswith(('http://', 'https://')):
-        original_url = 'https://' + original_url
+        except requests.exceptions.ConnectionError:
+            self.data_status_label.setText("Connection error: Cannot reach the FastAPI server.")
+            self.data_status_label.setStyleSheet("color: #EF4444; font-weight: 600;")
+        except Exception as e:
+            self.data_status_label.setText(f"An unexpected error occurred: {e}")
+            self.data_status_label.setStyleSheet("color: #EF4444; font-weight: 600;")
 
-    if not validators.url(original_url):
-        raise HTTPException(status_code=400, detail="Invalid URL format")
+    def _populate_url_table(self, urls_data):
+        self.url_table.setRowCount(len(urls_data))
+        for row, url_info in enumerate(urls_data):
+            self.url_table.setItem(row, 0, QTableWidgetItem(url_info.get('short_code', 'N/A')))
 
-    # Generate or use alias
-    if request.alias:
-        short_code = request.alias
-        # Check if alias exists
-        existing = db.collection('urls').document(short_code).get()
-        if existing.exists:
-            raise HTTPException(status_code=409, detail="Alias already exists")
-    else:
-        # Generate unique short code
-        while True:
-            short_code = generate_short_code()
-            existing = db.collection('urls').document(short_code).get()
-            if not existing.exists:
-                break
+            # Original URL with wrapping
+            original_url_item = QTableWidgetItem(url_info.get('original_url', 'N/A'))
+            original_url_item.setToolTip(url_info.get('original_url', 'N/A'))
+            self.url_table.setItem(row, 1, original_url_item)
 
-    # Parse expiration
-    expiration_days = parse_expiration(request.expiration)
+            self.url_table.setItem(row, 2, QTableWidgetItem(str(url_info.get('clicks', 0))))
 
-    # Prepare data
-    url_data = {
-        'original_url': original_url,
-        'short_code': short_code,
-        'alias': request.alias,
-        'expiration_days': expiration_days,
-        'created_at': firestore.SERVER_TIMESTAMP,
-        'clicks': 0,
-        'user_id': request.user_id,
-        'is_active': True
-    }
-
-    # Add expiration date
-    if expiration_days != 36500:
-        expires_at = datetime.now() + timedelta(days=expiration_days)
-        url_data['expires_at'] = expires_at
-
-    # Save to Firestore
-    try:
-        db.collection('urls').document(short_code).set(url_data)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-
-    # Return response
-    short_url = f"http://localhost:8000/{short_code}"
-
-    return ShortUrlResponse(
-        short_url=short_url,
-        original_url=original_url,
-        alias=request.alias,
-        expiration=request.expiration,
-        created_at=datetime.now().isoformat(),
-        short_code=short_code
-    )
-
-
-@app.get("/api/urls/{user_id}")
-async def get_user_urls(user_id: str):
-    """Get all URLs for a specific user"""
-    try:
-        urls_ref = db.collection('urls')
-        query = urls_ref.where('user_id', '==', user_id).order_by('created_at', direction=firestore.Query.DESCENDING)
-
-        urls = []
-        for doc in query.stream():
-            data = doc.to_dict()
-            data['id'] = doc.id
-            # Convert timestamps
-            if 'created_at' in data:
-                data['created_at'] = data['created_at'].isoformat() if hasattr(data['created_at'],
-                                                                               'isoformat') else str(data['created_at'])
-            if 'expires_at' in data and data['expires_at']:
-                data['expires_at'] = data['expires_at'].isoformat() if hasattr(data['expires_at'],
-                                                                               'isoformat') else str(data['expires_at'])
-            urls.append(data)
-
-        return urls
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+            # Format date for display
+            created_at_str = url_info.get('created_at', '')
+            display_date = created_at_str.split('T')[0] if created_at_str else 'N/A'
+            self.url_table.setItem(row, 3, QTableWidgetItem(display_date))
