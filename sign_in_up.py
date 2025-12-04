@@ -3,7 +3,7 @@ import requests
 import json
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
-    QLineEdit, QPushButton, QLabel, QFrame, QGraphicsDropShadowEffect, QSizePolicy
+    QLineEdit, QPushButton, QLabel, QFrame, QGraphicsDropShadowEffect, QSizePolicy, QMessageBox
 )
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont, QColor
@@ -15,15 +15,26 @@ try:
 except ImportError:
     # Fallback if home.py is not yet available in the environment
     class HomeWindow(QMainWindow):
-        def __init__(self, parent=None, user_id=None):
-            super().__init__(parent)
+        def __init__(self, auth_app_instance=None, user_id=None):  # Critical for redirection
+            super().__init__(auth_app_instance)
+            self.auth_app_instance = auth_app_instance
+            self.user_id = user_id
             self.setWindowTitle(f"Home Window (User: {user_id or 'Unknown'})")
             self.setGeometry(100, 100, 800, 600)
             label = QLabel(f"Welcome Home! User ID: {user_id}", self)
             label.setAlignment(Qt.AlignCenter)
             self.setCentralWidget(label)
 
-# --- STYLESHEET (Original) ---
+            # Placeholder for required methods to prevent errors
+            def load_dashboard_content(self, show_result=False, short_url=None):
+                pass
+
+            def logout(self, message="Logged out.", is_success=True):
+                if self.auth_app_instance:
+                    self.auth_app_instance.show_login_form(message, is_success)
+                self.close()
+
+# --- STYLESHEET (No changes needed) ---
 STYLESHEET = """
 QMainWindow {
     background-color: #F8F8F8; 
@@ -94,6 +105,7 @@ QLabel {
 """
 
 
+# --- HoverLabel and ShadowButton Classes (No changes needed) ---
 class HoverLabel(QLabel):
     """Custom QLabel with hover effect for underline links."""
 
@@ -177,7 +189,10 @@ class AuthApp(QMainWindow):
 
         self.api_url = "http://127.0.0.1:8000/api"
         self.user_id = None
-        self.home_window = None
+
+        # 🔑 CRITICAL CHANGE 1: Initialize HomeWindow early
+        # This instance is created once and reused, passed 'self' (the AuthApp)
+        self.home_window = HomeWindow(auth_app_instance=self, user_id=None)
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -221,6 +236,20 @@ class AuthApp(QMainWindow):
 
         self.create_login_form()
 
+    # 🔑 CRITICAL CHANGE 2: New Method for Redirection from HomeWindow
+    def show_login_form(self, message=None, is_success=False):
+        """
+        Method called by HomeWindow's logout after deletion/logout.
+        Hides the home window, shows the login window, and sets the status message.
+        """
+        # Hide the HomeWindow (or the active window if it were visible)
+        self.home_window.hide()
+
+        # Reset the AuthApp UI to the login form, displaying a message
+        self.create_login_form(initial_message=message, is_success=is_success)
+
+        self.show()
+
     def set_status_message(self, message, is_success):
         """Sets the status message text and styling (color)."""
         if self.status_label:
@@ -235,10 +264,14 @@ class AuthApp(QMainWindow):
 
     def _transition_to_home(self):
         """Internal method to handle the window swap."""
-        if self.home_window is None:
-            # Pass the user_id and the AuthApp instance
-            self.home_window = HomeWindow(auth_app_instance=self, user_id=self.user_id)
+        # 1. Update the HomeWindow with the logged-in user's ID
+        self.home_window.user_id = self.user_id
 
+        # 2. Re-load the dashboard content for the new user
+        # Note: HomeWindow must have this method, which you confirmed previously.
+        self.home_window.load_dashboard_content()
+
+        # 3. Perform the window swap
         self.home_window.show()
         self.hide()
 

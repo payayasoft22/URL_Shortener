@@ -1,5 +1,3 @@
-# HomeWindow.py (Full Code)
-
 import requests
 import json
 from urllib.parse import urlparse
@@ -10,9 +8,7 @@ import uuid
 import datetime
 import os
 import sys
-
 # Import the corrected QWidget-based SettingsPage
-# NOTE: Ensure settings.py is in the same directory
 from settings import SettingsPage
 
 from PyQt5.QtWidgets import (
@@ -51,14 +47,14 @@ def initialize_firebase():
                 # Ensure you have serviceAccountKey.json file in your project directory
                 cred = credentials.Certificate(service_account_path)
                 firebase_admin.initialize_app(cred)
-                # print("✅ Firebase initialized successfully (using serviceAccountKey.json)")
+                print("✅ Firebase initialized successfully (using serviceAccountKey.json)")
                 return firestore.client()
             else:
-                # print("❌ Firebase skipped: 'serviceAccountKey.json' not found. History saving disabled.")
+                print("❌ Firebase skipped: 'serviceAccountKey.json' not found. History saving disabled.")
                 return None
         return firestore.client()
     except Exception as e:
-        # print(f"❌ Firebase initialization failed: {e}")
+        print(f"❌ Firebase initialization failed: {e}")
         return None
 
 
@@ -301,7 +297,7 @@ class CopyNotification(QFrame):
             # Auto hide after 2 seconds
             QTimer.singleShot(2000, self.hide_and_destroy)
         except Exception as e:
-            # print(f"Error showing copy notification: {e}")
+            print(f"Error showing copy notification: {e}")
             self.hide_and_destroy()
 
     def hide_and_destroy(self):
@@ -502,16 +498,15 @@ class CreateLinkWorker(QThread):
 class ShadowButton(QPushButton):
     """Custom QPushButton that calls parent methods to toggle shadow on mouse events."""
 
-    def __init__(self, *args, parent_app, is_primary=True, is_danger=False, **kwargs): # Added is_danger
+    def __init__(self, *args, parent_app, is_primary=True, **kwargs):
         super().__init__(*args, **kwargs)
         self.parent_app = parent_app
         self.is_primary = is_primary
-        self.is_danger = is_danger # Store danger status
-        self.parent_app.apply_button_shadow(self, self.is_primary, is_danger=self.is_danger) # Pass danger
+        self.parent_app.apply_button_shadow(self, self.is_primary)
 
     def enterEvent(self, event):
         if self.isEnabled():
-            self.parent_app.apply_button_shadow(self, self.is_primary, is_danger=self.is_danger) # Pass danger
+            self.parent_app.apply_button_shadow(self, self.is_primary)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
@@ -522,25 +517,20 @@ class ShadowButton(QPushButton):
     def setEnabled(self, enabled):
         super().setEnabled(enabled)
         if enabled:
-            self.parent_app.apply_button_shadow(self, self.is_primary, is_danger=self.is_danger) # Pass danger
+            self.parent_app.apply_button_shadow(self, self.is_primary)
         else:
             self.parent_app.remove_button_shadow(self)
 
 
 class HomeWindow(QMainWindow):
-    # --- Shadow Helpers (Modified to include is_danger parameter) ---
-    def apply_button_shadow(self, button, is_primary, is_danger=False):
+    # --- Shadow Helpers ---
+    def apply_button_shadow(self, button, is_primary):
         shadow = QGraphicsDropShadowEffect(button)
         shadow.setBlurRadius(25)
         shadow.setOffset(0, 3)
-        if is_danger:
-            # Red shadow for danger buttons (Used by SettingsPage)
-            shadow.setColor(QColor(239, 68, 68, 120))
-        elif is_primary:
-            # Green shadow for primary buttons (Used by Dashboard)
+        if is_primary:
             shadow.setColor(QColor(0, 180, 120, 120))
         else:
-            # General/Secondary shadow
             shadow.setColor(QColor(0, 0, 0, 60))
         button.setGraphicsEffect(shadow)
 
@@ -719,7 +709,7 @@ class HomeWindow(QMainWindow):
                 self.copy_notification = CopyNotification(message, target_button)
                 self.copy_notification.show_at_button()
             except Exception as e:
-                # print(f"Error showing copy notification: {e}")
+                print(f"Error showing copy notification: {e}")
                 # Fallback to regular notification
                 self.show_notification(message, is_success=True, position="bottom", duration=2000)
 
@@ -1095,8 +1085,7 @@ class HomeWindow(QMainWindow):
 
         elif tab_name == "settings":
             # SettingsPage is now a QWidget, correctly embedded
-            # This is where the HomeWindow instance (self) is passed to settings.py
-            settings_page = SettingsPage(parent_app=self, user_id=self.user_id)
+            settings_page = SettingsPage(parent_app=self)
             self.content_layout.addWidget(settings_page, alignment=Qt.AlignHCenter)
 
         self.content_layout.addStretch(1)
@@ -1131,9 +1120,6 @@ class HomeWindow(QMainWindow):
             # Assuming auth_app_instance is the main application container/login window
             # and knows how to show itself.
             self.auth_app_instance.user_id = None
-            # Assuming auth_app_instance has create_login_form method
-            if hasattr(self.auth_app_instance, 'create_login_form'):
-                 self.auth_app_instance.create_login_form("You have been successfully logged out.", is_success=True)
             self.auth_app_instance.show()
         else:
             # Fallback if no auth instance is passed (e.g., running HomeWindow standalone)
