@@ -1,5 +1,7 @@
 import os
-from fastapi import FastAPI, HTTPException
+import sys
+from fastapi import FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional
 import firebase_admin
@@ -7,17 +9,18 @@ from firebase_admin import credentials, auth, firestore
 from datetime import datetime, timezone
 import random
 import string
+from starlette.responses import RedirectResponse  # Import needed for the redirect endpoint
 
 # --- 1. CONFIGURATION AND INITIALIZATION ---
 # NOTE: The 'backend' directory is typically the current working directory (CWD)
-# when running uvicorn. The '..' prefix tells the script to look one directory up
-# (in the 'URL_Shortener' root folder) to find the JSON key.
 SERVICE_ACCOUNT_KEY_PATH = "../serviceAccountKey.json"
 
 # Initialize Firebase Admin SDK
 try:
     # Check if the file exists before trying to load it
     if not os.path.exists(SERVICE_ACCOUNT_KEY_PATH):
+        # NOTE: If this error occurs, you need to place the JSON key in the
+        # parent directory of the backend folder.
         raise FileNotFoundError(f"Service account key not found at: {SERVICE_ACCOUNT_KEY_PATH}")
 
     cred = credentials.Certificate(SERVICE_ACCOUNT_KEY_PATH)
@@ -31,8 +34,9 @@ try:
     print("Firebase Admin SDK successfully initialized.")
 
 except Exception as e:
-    # The error from your last message will be caught here if the path is wrong
     print(f"❌ FATAL ERROR: Failed to initialize Firebase Admin SDK. Please check path and file name: {e}")
+    # Exit gracefully if Firebase fails to initialize
+    sys.exit(1)
 
 
 # --- 2. Pydantic Models for Data Validation ---
@@ -43,6 +47,7 @@ class AuthRequest(BaseModel):
 
 class ShortenRequest(BaseModel):
     original_url: str = Field(..., description="The long URL to be shortened.")
+    # user_id is required here since you are using it in your query
     user_id: str = Field(..., description="The authenticated user ID.")
 
 
@@ -51,10 +56,21 @@ class UrlInfo(BaseModel):
     original_url: str
     clicks: int = 0
     created_at: str
+    # Add a user_id field to the response model as it's saved in Firestore
+    user_id: Optional[str] = None
 
 
 # --- 3. FastAPI App Initialization ---
 app = FastAPI(title="Shortly URL Shortener API", version="1.0")
+
+# Add CORS Middleware for local development
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # --- 4. Helper Functions ---
@@ -73,8 +89,9 @@ def generate_short_code(length=6):
 @app.post("/api/signup")
 def signup_user(request: AuthRequest):
     """Creates a new user in Firebase Auth and generates the verification link."""
+    # Check initialization (redundant after system exit, but safe)
     if not firebase_admin._apps:
-        raise HTTPException(status_code=500, detail="Server initialization failed. Firebase not available.")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Server initialization failed.")
 
     try:
         # 1. Create the user in Firebase Auth
@@ -85,43 +102,44 @@ def signup_user(request: AuthRequest):
         )
 
         # 2. Generate the email verification link (Firebase handles the email content)
-        # NOTE: The action URL is configured in the Firebase console.
         verification_link = auth.generate_email_verification_link(request.email)
 
         return {
             "message": "User created. Verification link generated.",
             "user_id": user.uid,
-            # PyQt5 app will open this link in the browser.
             "verification_link": verification_link
         }
 
     except auth.EmailAlreadyExistsError:
-        raise HTTPException(status_code=400, detail="Email already in use.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already in use.")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Signup failed: {e}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Signup failed: {e}")
 
 
 @app.post("/api/login")
 def login_user(request: AuthRequest):
     """
-    Placeholder login. In a production app, this should check if the email
-    is verified and use a secure token exchange. Here, we just check for user existence.
+    Placeholder login.
     """
     try:
-        # Use Admin SDK to fetch user by email
+        # --- CRITICAL SECURITY NOTE ---
+        # The following line only checks for user existence by email and is INSECURE
+        # because it does not verify the password.
         user = auth.get_user_by_email(request.email)
 
-        # For this simple implementation, we assume if the user is retrieved,
-        # and the password was supplied, the local app should proceed.
-        # REALITY CHECK: THIS IS INSECURE FOR PASSWORD CHECKING.
-        # A proper app would exchange credentials for an ID token here.
+        # --- SECURE IMPLEMENTATION PLACEHOLDER ---
+        # In a secure application, the client should use the Firebase Client SDK
+        # to get an ID Token, and the FastAPI server would verify it here.
+        # Example (not implemented):
+        # id_token = auth_client.sign_in_with_email_and_password(request.email, request.password)
+        # auth.verify_id_token(id_token)
 
         return {"message": "Login successful", "user_id": user.uid}
 
     except auth.UserNotFoundError:
-        raise HTTPException(status_code=401, detail="Invalid email or password.")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password.")
     except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Login failed: {e}")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Login failed: {e}")
 
 
 # --- 6. URL SHORTENER ENDPOINTS (Used by PyQt5 HomeWindow) ---
@@ -130,7 +148,7 @@ def login_user(request: AuthRequest):
 def create_short_url(request: ShortenRequest):
     """Shortens a URL and saves it to Firestore."""
     if not request.original_url.startswith('http'):
-        raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="URL must start with http:// or https://")
 
     try:
         code = generate_short_code()
@@ -149,7 +167,7 @@ def create_short_url(request: ShortenRequest):
         return {"short_code": code, "full_short_url": f"http://127.0.0.1:8000/r/{code}"}
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to shorten URL: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to shorten URL: {e}")
 
 
 @app.get("/api/urls/{user_id}", response_model=List[UrlInfo])
@@ -162,18 +180,18 @@ def get_user_urls(user_id: str):
         urls_list = []
         for doc in urls_ref:
             data = doc.to_dict()
+            # Ensure the data conforms to the Pydantic model
             urls_list.append(UrlInfo(**data))
 
         return urls_list
 
     except Exception as e:
-        # Log the error for debugging
         print(f"Error fetching URLs for user {user_id}: {e}")
-        # Return an empty list on error instead of raising 500, to keep the UI running
+        # Return an empty list on error
         return []
 
 
-# --- 7. REDIRECT ENDPOINT (Simulates the short URL logic) ---
+# --- 7. REDIRECT ENDPOINT ---
 
 @app.get("/r/{short_code}")
 def redirect_to_long_url(short_code: str):
@@ -183,7 +201,7 @@ def redirect_to_long_url(short_code: str):
         doc = doc_ref.get()
 
         if not doc.exists:
-            raise HTTPException(status_code=404, detail="Short URL not found.")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Short URL not found.")
 
         data = doc.to_dict()
         original_url = data.get("original_url")
@@ -193,12 +211,14 @@ def redirect_to_long_url(short_code: str):
         doc_ref.update({"clicks": clicks})
 
         # Perform the redirect
-        from starlette.responses import RedirectResponse
-        return RedirectResponse(url=original_url, status_code=307)
+        return RedirectResponse(url=original_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
     except Exception as e:
-        # Handle errors, e.g., if Firestore is down
-        raise HTTPException(status_code=500, detail=f"Redirect failed: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Redirect failed: {e}")
 
-# To run the FastAPI server, navigate to the 'backend' folder and execute:
-# uvicorn fastapi_backend:app --reload --port 8000
+
+if __name__ == "__main__":
+    # If you run the file directly, it will start uvicorn
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)

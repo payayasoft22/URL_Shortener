@@ -498,15 +498,16 @@ class CreateLinkWorker(QThread):
 class ShadowButton(QPushButton):
     """Custom QPushButton that calls parent methods to toggle shadow on mouse events."""
 
-    def __init__(self, *args, parent_app, is_primary=True, **kwargs):
+    def __init__(self, *args, parent_app, is_primary=True, is_danger=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.parent_app = parent_app
         self.is_primary = is_primary
-        self.parent_app.apply_button_shadow(self, self.is_primary)
+        self.is_danger = is_danger
+        self.parent_app.apply_button_shadow(self, self.is_primary, self.is_danger)
 
     def enterEvent(self, event):
         if self.isEnabled():
-            self.parent_app.apply_button_shadow(self, self.is_primary)
+            self.parent_app.apply_button_shadow(self, self.is_primary, self.is_danger)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
@@ -517,19 +518,21 @@ class ShadowButton(QPushButton):
     def setEnabled(self, enabled):
         super().setEnabled(enabled)
         if enabled:
-            self.parent_app.apply_button_shadow(self, self.is_primary)
+            self.parent_app.apply_button_shadow(self, self.is_primary, self.is_danger)
         else:
             self.parent_app.remove_button_shadow(self)
 
 
 class HomeWindow(QMainWindow):
     # --- Shadow Helpers ---
-    def apply_button_shadow(self, button, is_primary):
+    def apply_button_shadow(self, button, is_primary, is_danger=False):
         shadow = QGraphicsDropShadowEffect(button)
         shadow.setBlurRadius(25)
         shadow.setOffset(0, 3)
         if is_primary:
             shadow.setColor(QColor(0, 180, 120, 120))
+        elif is_danger:
+            shadow.setColor(QColor(239, 68, 68, 120))  # Red color for danger buttons
         else:
             shadow.setColor(QColor(0, 0, 0, 60))
         button.setGraphicsEffect(shadow)
@@ -797,14 +800,12 @@ class HomeWindow(QMainWindow):
         action_layout.setContentsMargins(0, 0, 0, 0)
         action_layout.setSpacing(10)
 
-        # Create a regular QPushButton instead of ShadowButton to avoid parent_app issues
-        copy_btn = QPushButton("Copy URL")
-        copy_btn.setObjectName("copyButton")
+        # Create a ShadowButton for consistent behavior
+        copy_btn = ShadowButton("Copy URL", parent_app=self, is_primary=True, objectName="copyButton")
         copy_btn.setCursor(Qt.PointingHandCursor)
         # Store the short_url in the button's property for access in the lambda
         copy_btn.setProperty("short_url", short_url)
         copy_btn.clicked.connect(lambda checked, btn=copy_btn: self.copy_to_clipboard(btn.property("short_url"), btn))
-        self.apply_button_shadow(copy_btn, is_primary=True)  # Apply shadow manually
 
         action_layout.addStretch(1)
         action_layout.addWidget(copy_btn)
@@ -974,7 +975,7 @@ class HomeWindow(QMainWindow):
             return
 
         self.create_btn.setEnabled(False)
-        self.create_btn.setText("Creating & Saving...")
+        self.create_btn.setText("Creating && Saving...")
         self.remove_button_shadow(self.create_btn)  # Remove shadow for disabled state
 
         url_data = {
@@ -1084,8 +1085,8 @@ class HomeWindow(QMainWindow):
             self.content_layout.addWidget(history_page)
 
         elif tab_name == "settings":
-            # SettingsPage is now a QWidget, correctly embedded
-            settings_page = SettingsPage(parent_app=self)
+            # SettingsPage now correctly receives self as parent_app
+            settings_page = SettingsPage(parent_app=self, user_id=self.user_id)
             self.content_layout.addWidget(settings_page, alignment=Qt.AlignHCenter)
 
         self.content_layout.addStretch(1)

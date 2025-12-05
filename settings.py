@@ -5,11 +5,11 @@ from PyQt5.QtWidgets import (
     QHBoxLayout, QLineEdit, QGraphicsDropShadowEffect,
     QMessageBox
 )
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer, QCoreApplication
 from PyQt5.QtGui import QColor, QFont
 
 
-# ------------------------ SHADOW BUTTON (Kept for consistency, but relies on parent_app) ------------------------
+# ------------------------ SHADOW BUTTON ------------------------
 class ShadowButton(QPushButton):
     """Custom QPushButton with shadow effects. Assumes parent_app has shadow methods."""
 
@@ -19,7 +19,6 @@ class ShadowButton(QPushButton):
         self.is_primary = is_primary
         self.is_danger = is_danger
         if self.isEnabled():
-            # Use specific shadow logic based on type (primary/danger)
             self.parent_app.apply_button_shadow(self, self.is_primary, is_danger=self.is_danger)
 
     def enterEvent(self, event):
@@ -29,7 +28,6 @@ class ShadowButton(QPushButton):
 
     def leaveEvent(self, event):
         if self.isEnabled():
-            # The parent_app's remove_button_shadow must handle the case where is_danger is true
             self.parent_app.remove_button_shadow(self)
         super().leaveEvent(event)
 
@@ -58,31 +56,13 @@ class SettingsPage(QWidget):  # <--- Inherit from QWidget for embedding
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(40, 20, 40, 20)
         main_layout.setSpacing(20)
+        main_layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
 
         header_label = QLabel("Settings")
         header_label.setFont(QFont("Arial", 32, QFont.Bold))
         main_layout.addWidget(header_label)
 
-        # Add the shadow helper methods to the parent_app if they don't exist
-        # This is crucial for ShadowButton functionality
-        if not hasattr(self.parent_app, 'apply_button_shadow'):
-            self.parent_app.apply_button_shadow = self._apply_button_shadow_shim
-        if not hasattr(self.parent_app, 'remove_button_shadow'):
-            self.parent_app.remove_button_shadow = self._remove_button_shadow_shim
-
         self.load_settings_content(main_layout)
-
-    # Shim functions in case HomeWindow isn't running the full code,
-    # ensuring ShadowButton doesn't crash.
-    def _apply_button_shadow_shim(self, button, is_primary, is_danger=False):
-        shadow = QGraphicsDropShadowEffect(button)
-        shadow.setBlurRadius(25)
-        shadow.setOffset(0, 3)
-        shadow.setColor(QColor(0, 0, 0, 60))
-        button.setGraphicsEffect(shadow)
-
-    def _remove_button_shadow_shim(self, button):
-        button.setGraphicsEffect(None)
 
     def _get_widget_stylesheet(self):
         # Only include styles for the embedded content
@@ -102,14 +82,14 @@ class SettingsPage(QWidget):  # <--- Inherit from QWidget for embedding
         """
 
     def load_settings_content(self, layout):
-        layout.addWidget(self.create_password_update_card())
-        layout.addWidget(self.create_delete_account_card())
+        layout.addWidget(self.create_password_update_card(), alignment=Qt.AlignHCenter)
+        layout.addWidget(self.create_delete_account_card(), alignment=Qt.AlignHCenter)
+        layout.addStretch(1)
 
     # ------------------------ PASSWORD UPDATE CARD ------------------------
     def create_password_update_card(self):
         card = QFrame(objectName="settingsCard")
-        card.setMinimumWidth(736)
-        card.setMaximumWidth(736)
+        card.setFixedWidth(736)
 
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(40, 30, 40, 30)
@@ -219,8 +199,7 @@ class SettingsPage(QWidget):  # <--- Inherit from QWidget for embedding
     # ------------------------ DELETE ACCOUNT CARD ------------------------
     def create_delete_account_card(self):
         card = QFrame(objectName="settingsCard")
-        card.setMinimumWidth(736)
-        card.setMaximumWidth(736)
+        card.setFixedWidth(736)
 
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(40, 30, 40, 30)
@@ -252,9 +231,9 @@ class SettingsPage(QWidget):  # <--- Inherit from QWidget for embedding
             # Simulation of deletion logic
             self.parent_app.show_notification(
                 f"Account for User ID: {self.user_id} has been permanently deleted (simulated).",
-                is_success=True,
+                is_success=False,  # Changed to False to use the danger notification style
                 position="top",
                 duration=4000
             )
-            # Crucially, call the HomeWindow's logout function to control the application state
+            # CRITICAL LINK: Calls the HomeWindow's logout function which returns to AuthApp
             QTimer.singleShot(100, self.parent_app.logout)

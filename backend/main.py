@@ -1,7 +1,7 @@
 import sys
 import requests
-from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QLabel, QScrollArea, QFrame, QHBoxLayout, QTableWidget, \
-    QTableWidgetItem, QHeaderView, QSizePolicy
+from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QLabel, QFrame, QTableWidget, \
+    QTableWidgetItem, QHeaderView, QApplication  # Added QApplication for execution
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont, QColor
 
@@ -59,7 +59,7 @@ class HomeWindow(QMainWindow):
     It fetches and displays user-specific data from the FastAPI server.
     """
 
-    def __init__(self, parent=None, user_id=None):
+    def __init__(self, parent=None, user_id="TEST_USER_ID"):  # Changed default for easy testing
         super().__init__(parent)
         self.user_id = user_id
         self.setWindowTitle("Shortly Desktop - Dashboard")
@@ -149,12 +149,16 @@ class HomeWindow(QMainWindow):
                 self.data_status_label.setText(f"Successfully loaded {len(urls_data)} URL(s) from Firebase.")
                 self.data_status_label.setStyleSheet("color: #10B981; font-weight: 600;")
             else:
-                error_detail = response.json().get("detail", f"Failed with status {response.status_code}")
+                try:
+                    error_detail = response.json().get("detail", f"Failed with status {response.status_code}")
+                except requests.exceptions.JSONDecodeError:
+                    error_detail = response.text or f"Failed with status {response.status_code}"
+
                 self.data_status_label.setText(f"API Error fetching URLs: {error_detail}")
                 self.data_status_label.setStyleSheet("color: #EF4444; font-weight: 600;")
 
         except requests.exceptions.ConnectionError:
-            self.data_status_label.setText("Connection error: Cannot reach the FastAPI server.")
+            self.data_status_label.setText("Connection error: Cannot reach the FastAPI server. Is the backend running?")
             self.data_status_label.setStyleSheet("color: #EF4444; font-weight: 600;")
         except Exception as e:
             self.data_status_label.setText(f"An unexpected error occurred: {e}")
@@ -176,3 +180,12 @@ class HomeWindow(QMainWindow):
             created_at_str = url_info.get('created_at', '')
             display_date = created_at_str.split('T')[0] if created_at_str else 'N/A'
             self.url_table.setItem(row, 3, QTableWidgetItem(display_date))
+
+
+if __name__ == "__main__":
+    # Example execution: Replace 'TEST_USER_ID' with a real UID after login
+    # In a real app, the login screen would pass the UID here.
+    app = QApplication(sys.argv)
+    main_win = HomeWindow(user_id="YOUR_FIREBASE_USER_ID_HERE")
+    main_win.show()
+    sys.exit(app.exec_())

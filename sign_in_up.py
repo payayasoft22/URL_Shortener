@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont, QColor
 
-# --- Import the HomeWindow from home.py ---
+# --- Import the HomeWindow from home.py ---    
 try:
     # Assuming home.py is fixed and available
     from home import HomeWindow
